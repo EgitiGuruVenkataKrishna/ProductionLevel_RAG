@@ -1,0 +1,427 @@
+Microsoft Windows [Version 10.0.26200.7462]
+(c) Microsoft Corporation. All rights reserved.
+
+Z:\>SQLPLUS BCA247976/BCA247976@172.18.8.101/ORCLPDB1
+
+SQL*Plus: Release 19.0.0.0.0 - Production on Sat Jan 24 14:01:39 2026
+Version 19.3.0.0.0
+
+Copyright (c) 1982, 2019, Oracle.  All rights reserved.
+
+Last Successful login time: Sat Jan 17 2026 14:12:14 +05:30
+
+Connected to:
+Oracle Database 19c Enterprise Edition Release 19.0.0.0.0 - Production
+Version 19.3.0.0.0
+
+SQL> select managerssn ,mgrstartdate from department where Dname="Finance";
+select managerssn ,mgrstartdate from department where Dname="Finance"
+                                                            *
+ERROR at line 1:
+ORA-00904: "Finance": invalid identifier
+
+
+SQL> select dname from department;
+
+DNAME
+--------------------------------------------------
+Finance
+Marketting
+Sales
+Management
+
+SQL> select managerssn ,mgrstartdate from department where Dname='Finance';
+
+MANAGERSS MGRSTARTD
+--------- ---------
+554433221 10-JAN-15
+
+SQL> update employee set DepartmentNo=4 where FisrtName='joyce";
+ERROR:
+ORA-01756: quoted string not properly terminated
+
+
+SQL> update employee set DepartmentNo=4 where FisrtName='joyce';
+update employee set DepartmentNo=4 where FisrtName='joyce'
+                                         *
+ERROR at line 1:
+ORA-00904: "FISRTNAME": invalid identifier
+
+
+SQL> update employee set DepartmentNo=4 where FirstName='joyce';
+
+1 row updated.
+
+SQL> alter table department add dept_Phno Number;
+
+Table altered.
+
+SQL> update department set dept_phno=9876543210;
+
+4 rows updated.
+
+SQL> alter table modify dept_phno number(12);
+alter table modify dept_phno number(12)
+            *
+ERROR at line 1:
+ORA-00903: invalid table name
+
+
+SQL> alter table department modify dept_phno number(12);
+alter table department modify dept_phno number(12)
+                              *
+ERROR at line 1:
+ORA-01440: column to be modified must be empty to decrease precision or scale
+
+
+SQL> update department set dept_phno=null;
+
+4 rows updated.
+
+SQL> alter table department modify dept_phno number(12);
+
+Table altered.
+
+SQL> update department rename column dept_phno to phno;
+update department rename column dept_phno to phno
+                  *
+ERROR at line 1:
+ORA-00971: missing SET keyword
+
+
+SQL> alter table  department rename column dept_phno to phno;
+
+Table altered.
+
+SQL> rename department to dept;
+
+Table renamed.
+
+SQL> alter table dept drop column phno;
+
+Table altered.
+
+SQL> create table copy_dept as dept;
+create table copy_dept as dept
+                          *
+ERROR at line 1:
+ORA-00928: missing SELECT keyword
+
+
+SQL> create table copy_dept as select * from dept;
+
+Table created.
+
+SQL> delete from copy_dept;
+
+4 rows deleted.
+
+SQL> drop table copy_dept;
+
+Table dropped.
+
+SQL> delete fk_emp_svr;
+delete fk_emp_svr
+       *
+ERROR at line 1:
+ORA-00942: table or view does not exist
+
+
+SQL> select firstname from employee where salary>50000;
+
+FIRSTNAME
+--------------------------------------------------
+joyce
+Alan
+
+SQL> select firstname from employee where salary between 30000 to 700000;
+select firstname from employee where salary between 30000 to 700000
+                                                          *
+ERROR at line 1:
+ORA-00905: missing keyword
+
+
+SQL> select firstname from employee where salary between 30000 and 700000;
+
+FIRSTNAME
+--------------------------------------------------
+john
+joyce
+Alan
+anita
+
+SQL> select firstname from employee where salary between 30000 and 70000;
+
+FIRSTNAME
+--------------------------------------------------
+john
+Alan
+anita
+
+SQL> select firstname from employee where supervisorssn is null;
+
+FIRSTNAME
+--------------------------------------------------
+john
+
+SQL> select firstname from employee where supervisorssn = null;
+
+no rows selected
+
+SQL> select firstname from employee where supervisorssn is null;
+
+FIRSTNAME
+--------------------------------------------------
+john
+
+SQL> select to_char(birthday,''ddthMonthyyyy') from employee;
+ERROR:
+ORA-01756: quoted string not properly terminated
+
+
+SQL> select to_char(birthday,'DDthMonthYYYY') from employee;
+
+TO_CHAR(BIRTHDAY,'DDTHMONTHYYYY')
+--------------------------------------------
+24THFebruary 2001
+20THDecember 1970
+29THMarch    1959
+21STJanuary  1985
+
+SQL> select to_char(birthday,'DDth Month YYYY') from employee;
+
+TO_CHAR(BIRTHDAY,'DDTHMONTHYYYY')
+----------------------------------------------
+24TH February  2001
+20TH December  1970
+29TH March     1959
+21ST January   1985
+
+SQL> select firstname from employee where birthday<=date'1978-12-31';
+
+FIRSTNAME
+--------------------------------------------------
+joyce
+Alan
+
+SQL> select firstname from employee where lower(address) like '%salt lake%';
+
+FIRSTNAME
+--------------------------------------------------
+Alan
+
+SQL> select firstname from employee where lower(address) like '%salt %';
+
+FIRSTNAME
+--------------------------------------------------
+Alan
+
+SQL> select firstname from employee where lower(address) like '%salt%';
+
+FIRSTNAME
+--------------------------------------------------
+john
+Alan
+
+SQL> select dname from dept where dname like '%c%';
+
+DNAME
+--------------------------------------------------
+Finance
+
+SQL> select dname from dept where dname like 'c%';
+
+no rows selected
+
+SQL> select dname from employee where dname like 'c%';
+select dname from employee where dname like 'c%'
+                                 *
+ERROR at line 1:
+ORA-00904: "DNAME": invalid identifier
+
+
+SQL> select dname from dept where dname like 'M%';
+
+DNAME
+--------------------------------------------------
+Management
+Marketting
+
+SQL> select dname from dept where dname like '%E';
+
+no rows selected
+
+SQL> select dname from dept where dname like '%M';
+
+no rows selected
+
+SQL> select firstname from employee where supervisorssn in ('554433221','333222111');
+
+no rows selected
+
+SQL> select firstname from employee where supervisorssn in ('554433221','333445555');
+
+no rows selected
+
+SQL> select upper(dname), lower(dname) from dept;
+
+UPPER(DNAME)
+--------------------------------------------------
+LOWER(DNAME)
+--------------------------------------------------
+FINANCE
+finance
+
+MARKETTING
+marketting
+
+SALES
+sales
+
+
+UPPER(DNAME)
+--------------------------------------------------
+LOWER(DNAME)
+--------------------------------------------------
+MANAGEMENT
+management
+
+
+SQL> select substr(dname,1,4),substr(firstname,1,) from dept;
+select substr(dname,1,4),substr(firstname,1,) from dept
+                                            *
+ERROR at line 1:
+ORA-00936: missing expression
+
+
+SQL> select substr(dname,1,4),substr(firstname,-1) from dept;
+select substr(dname,1,4),substr(firstname,-1) from dept
+                                *
+ERROR at line 1:
+ORA-00904: "FIRSTNAME": invalid identifier
+
+
+SQL> select substr(dname,1,4),substr(dname,-1) from dept;
+
+SUBSTR(DNAME,1,4 SUBS
+---------------- ----
+Fina             e
+Mark             g
+Sale             s
+Mana             t
+
+SQL> select substr(dname,1,4),substr(dname,-4) from dept;
+
+SUBSTR(DNAME,1,4 SUBSTR(DNAME,-4)
+---------------- ----------------
+Fina             ance
+Mark             ting
+Sale             ales
+Mana             ment
+
+SQL> select substr(dname,1,4),substr(dname,-0) from dept;
+
+SUBSTR(DNAME,1,4
+----------------
+SUBSTR(DNAME,-0)
+--------------------------------------------------------------------------------
+Fina
+Finance
+
+Mark
+Marketting
+
+Sale
+Sales
+
+
+SUBSTR(DNAME,1,4
+----------------
+SUBSTR(DNAME,-0)
+--------------------------------------------------------------------------------
+Mana
+Management
+
+
+SQL> select substr(firstname,1,6) from employee;
+
+SUBSTR(FIRSTNAME,1,6)
+------------------------
+john
+joyce
+Alan
+anita
+
+SQL> select substr(firstname,-3) from employee;
+
+SUBSTR(FIRST
+------------
+ohn
+yce
+lan
+ita
+
+SQL> select add_months(mgrstartdate,3) from dept;
+
+ADD_MONTH
+---------
+10-APR-15
+12-AUG-18
+15-JUN-16
+20-OCT-10
+
+SQL> select substr(address,1,3) from employee;
+
+SUBSTR(ADDRE
+------------
+sal
+New
+sal
+mum
+
+SQL> select substr(address,1,-1) from employee;
+
+S
+-
+
+
+
+
+
+SQL> select substr(address,1,1) from employee;
+
+SUBS
+----
+s
+N
+s
+m
+
+SQL> select substr(address,1,3) from employee;
+
+SUBSTR(ADDRE
+------------
+sal
+New
+sal
+mum
+
+SQL> select substr(address,5,7) from employee;
+
+SUBSTR(ADDRESS,5,7)
+----------------------------
+lake ci
+York
+ lake A
+ai
+
+SQL> select firstname,round(months_between(sysdate,birthday)/12,2) as age from employee;
+
+FIRSTNAME                                                 AGE
+-------------------------------------------------- ----------
+john                                                    24.92
+joyce                                                    55.1
+Alan                                                    66.82
+anita                                                   41.01
+
+SQL>

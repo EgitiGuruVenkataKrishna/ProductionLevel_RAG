@@ -1,5 +1,5 @@
 .env
 venv/
 chroma_data/
-uploadfiles/
+uploaded_files/
 *.png
