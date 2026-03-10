@@ -1,25 +1,22 @@
-# Core API Framework
-fastapi==0.109.0
-uvicorn[standard]==0.27.0
-python-multipart==0.0.6
-python-dotenv==1.0.1
 
-# LangChain for Document Processing
-langchain==0.1.6
-langchain-community==0.0.20
+fastapi
+uvicorn
+
+python-dotenv
+
+
+langchain==0.1.13
+langchain-community==0.0.29
 langchain-text-splitters==0.0.1
-langchain-groq==0.0.1
+langchain-groq
+langchian_core==0.0.29
 
-# Embeddings & Vector Database
-sentence-transformers==2.3.1
-chromadb==0.4.22
 
-# PDF Processing
-pypdf==4.0.1
+sentence-transformers
+chromadb
 
-# Data Validation
-pydantic==2.6.0
 
-# Utilities
-# These are usually included with above packages, but listing for completeness
-numpy>=1.24.0
+pypdf
+
+
+pydantic
