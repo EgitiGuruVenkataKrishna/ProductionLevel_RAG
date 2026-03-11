@@ -1,25 +1,19 @@
-# Base image
-FROM python:3.11-slim
+FROM python:3.10-slim
 
 WORKDIR /app
 
-
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
-    gcc \
     && rm -rf /var/lib/apt/lists/*
 
-
 COPY requirements.txt .
-
-RUN pip install --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt
 
+COPY main.py .
 
-COPY . .
-
+RUN mkdir -p /app/chroma_data /app/uploaded_files
 
 EXPOSE 8000
 
-
-CMD ["sh","-c","uvicorn main:app --host localhost  --port${PORT:-8000}"]
+# ✅ FIX: Use $PORT from Render environment
+CMD gunicorn main:app --workers 1 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT --timeout 120
