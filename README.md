@@ -68,7 +68,7 @@ Upload your documents (PDFs or text files) and ask questions about them. The sys
 
 1. **Clone the repository**
 ```bash
-git clone https://github.com/EgitiGuruVenkataKrishna/ProductionLevl_RAG
+git clone https://github.com/EgitiGuruVenkataKrishna/ProductionLevl_RAG.git
 cd day-14
 ```
 
