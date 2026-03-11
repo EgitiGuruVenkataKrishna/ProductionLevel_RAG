@@ -68,7 +68,7 @@ Upload your documents (PDFs or text files) and ask questions about them. The sys
 
 1. **Clone the repository**
 ```bash
-git clone https://github.com/EgitiGuruVenkataKrishna/LLM-chat-B-to-A-
+git clone https://github.com/EgitiGuruVenkataKrishna/ProductionLevl_RAG
 cd day-14
 ```
 
