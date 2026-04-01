@@ -1,4 +1,5 @@
 {
+    "name": "legal-rag",
     "version": 2,
     "builds": [
         {
