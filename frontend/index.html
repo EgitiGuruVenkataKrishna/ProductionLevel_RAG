@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Junior Legal Assistant — AI-powered Q&A for Indian law, Constitution, IPC, BNS with citations and confidence scoring">
+    <title>⚖️ Legal Assistant — Indian Law</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Header -->
+    <header class="app-header">
+        <div class="header-content">
+            <div class="logo">
+                <span class="logo-icon">⚖️</span>
+                <div class="logo-text">
+                    <h1>Legal Assistant</h1>
+                    <span class="tagline">Indian Law • Constitution • IPC • BNS</span>
+                </div>
+            </div>
+            <div class="header-badges">
+                <span class="badge badge-hybrid">Hybrid Search</span>
+                <span class="badge badge-ai">AI Powered</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Chat Area -->
+    <main class="chat-container">
+        <div class="chat-messages" id="chatMessages">
+            <!-- Welcome Message -->
+            <div class="message assistant-message">
+                <div class="message-avatar">⚖️</div>
+                <div class="message-content">
+                    <div class="message-bubble">
+                        <p><strong>Welcome to the Legal Assistant!</strong></p>
+                        <p>I can help you with questions about:</p>
+                        <ul>
+                            <li>🇮🇳 <strong>Constitution of India</strong> — Fundamental Rights, DPSP, Articles</li>
+                            <li>⚔️ <strong>Indian Penal Code (IPC)</strong> & <strong>Bharatiya Nyaya Sanhita (BNS)</strong></li>
+                            <li>📜 Other Indian Acts and Legal Statutes</li>
+                        </ul>
+                        <p>Every answer includes <strong>citations</strong>, <strong>confidence scores</strong>, and references to specific Articles/Sections.</p>
+                        <p class="disclaimer">⚠️ This is an informational tool — not a substitute for professional legal advice.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Scroll to bottom button -->
+        <button class="scroll-btn" id="scrollBtn" title="Scroll to bottom">↓</button>
+    </main>
+
+    <!-- Input Area -->
+    <footer class="input-area">
+        <div class="input-container">
+            <div class="search-mode-toggle">
+                <button class="mode-btn active" data-mode="hybrid" title="Hybrid: BM25 + Semantic">⚡ Hybrid</button>
+                <button class="mode-btn" data-mode="semantic" title="Semantic search only">🧠 Semantic</button>
+                <button class="mode-btn" data-mode="keyword" title="Keyword search only">🔤 Keyword</button>
+            </div>
+            <div class="input-row">
+                <textarea 
+                    id="queryInput" 
+                    placeholder="Ask a legal question... e.g., 'What are the fundamental rights under the Indian Constitution?'"
+                    rows="1"
+                    maxlength="1000"
+                ></textarea>
+                <button id="sendBtn" class="send-btn" title="Send Question">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="22" y1="2" x2="11" y2="13"></line>
+                        <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </footer>
+
+    <script src="script.js"></script>
+</body>
+</html>

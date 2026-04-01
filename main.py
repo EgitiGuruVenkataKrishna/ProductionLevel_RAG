@@ -1,581 +1,281 @@
+"""
+Legal RAG System — Local Development Entry Point
+
+Run with: python main.py
+This starts a local server with both API and frontend.
+For Vercel deployment, this file is not used (Vercel uses api/ endpoints directly).
+
+Pipeline:
+  1. Query Expansion (multi-query via Groq)
+  2. Multi-Query Hybrid Retrieval (BM25 + FAISS)
+  3. RRF Fusion
+  4. Cross-Encoder Reranking
+  5. Context Filtering / Sanitization
+  6. LLM Generation (strict legal prompt)
+  7. Answer Grounding Check
+  8. Real Confidence Scoring → Final Response
+"""
+import sys
+import os
 import logging
+import json
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-"""
-RAG Document Q&A System
------------------------
-A production-ready Retrieval-Augmented Generation (RAG) system that enables 
-question-answering over uploaded documents using FastAPI, ChromaDB, and LLMs.
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
-Features:
-- PDF and TXT file processing
-- Semantic search with confidence scoring
-- Edge case handling and validation
-- REST API with automatic documentation
+from app.config import (
+    FAISS_INDEX_PATH, BM25_INDEX_PATH, RERANK_TOP_N, CONTEXT_TOP_N,
+    CHUNKS_METADATA_PATH, EMBEDDING_MODEL, RERANKER_MODEL, LLM_MODEL
+)
+from app.models import (
+    QueryRequest, QueryResponse, CitationSource,
+    GroundingMetrics, HealthResponse
+)
+from app.services.bm25_index import bm25_index
+from app.services.vector_index import vector_index
+from app.services.query_expander import expand_query
+from app.services.hybrid_retriever import (
+    multi_query_hybrid_search, load_chunks_metadata, get_chunk_by_id
+)
+from app.services.reranker import rerank_passages
+from app.services.context_filter import filter_and_sanitize
+from app.services.generator import generate_legal_answer, get_confidence_level, build_context
+from app.services.grounding_checker import check_grounding
 
-Author: Guru Venkata Krishna
-Date: February 2026
-Version: 1.0.0
-"""
-
-# Imports Required
-from fastapi import FastAPI, UploadFile, File, HTTPException
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
-import os
-import re
-from pathlib import Path
-from dotenv import load_dotenv
-
-from langchain_community.document_loaders import PyPDFLoader
-from langchain_core.documents import Document
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_groq import ChatGroq
-from sentence_transformers import SentenceTransformer
-import chromadb
-
-load_dotenv(override=True)
-
-# ==================== CONFIGURATION ====================
-# File Upload Settings
-MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB in bytes
-ALLOWED_EXTENSIONS = ['.pdf', '.txt']
-MIN_TEXT_LENGTH = 100  # Minimum characters needed
-
-# ChromaDB Settings
-CHROMA_PATH = "./chroma_data"
-EMBEDDING_MODEL = "all-MiniLM-L6-v2"
-EMBEDDING_DIMENSIONS = 384
-
-# Chunking Settings
-CHUNK_SIZE = 500
-CHUNK_OVERLAP = 50
-
-# Confidence Thresholds
-HIGH_CONFIDENCE = 0.75
-MEDIUM_CONFIDENCE = 0.5
-LOW_CONFIDENCE = 0.3
-
-# Paths
-UPLOAD_DIR = Path("./uploaded_files")
-UPLOAD_DIR.mkdir(exist_ok=True)
-# ======================================================
-
-
-# ==================== UTILITY FUNCTIONS ====================
-def sanitize_collection_name(name: str) -> str:
-    """
-    Convert any string to valid ChromaDB collection name
-    
-    Rules:
-    - Only [a-zA-Z0-9._-]
-    - 3-512 characters
-    - Must start/end with alphanumeric
-    """
-    # Replace invalid characters with underscore
-    name = re.sub(r'[^a-zA-Z0-9._-]', '_', name)
-    
-    # Remove leading/trailing non-alphanumeric
-    name = re.sub(r'^[^a-zA-Z0-9]+|[^a-zA-Z0-9]+$', '', name)
-    
-    # Ensure minimum length
-    if len(name) < 3:
-        name = f"collection_{name}"
-    
-    # Ensure maximum length
-    if len(name) > 512:
-        name = name[:512]
-    
-    return name.lower()
-
-
-def get_confidence_level(similarity: float) -> tuple[str, str]:
-    """
-    Convert similarity score to confidence level and warning
-    
-    Args:
-        similarity: Float between 0 and 1
-        
-    Returns:
-        Tuple of (confidence_level, warning_message)
-    """
-    if similarity >= HIGH_CONFIDENCE:
-        return "high", None
-    elif similarity >= MEDIUM_CONFIDENCE:
-        return "medium", "Moderate confidence - verify important details"
-    elif similarity >= LOW_CONFIDENCE:
-        return "low", "Low confidence - answer may not be accurate"
-    else:
-        return "very_low", "Very low confidence - likely no relevant information"
-# ===========================================================
-
-
-# ==================== PYDANTIC MODELS ====================
-class QueryRequest(BaseModel):
-    """Request model for asking questions"""
-    question: str = Field(..., min_length=3, max_length=500, description="Question to ask")
-    collection_name: str = Field(default="documents", description="Collection to search")
-    min_confidence: float = Field(default=0.3, ge=0.0, le=1.0, description="Minimum similarity threshold")
-
-
-class QueryResponse(BaseModel):
-    """Response model for answers"""
-    answer: str
-    confidence: str  # "high", "medium", "low", "very_low"
-    avg_similarity: float
-    best_similarity: float
-    source_documents: list
-    warning: str = None
-# ===========================================================
-
-
-# ==================== FASTAPI INSTANCE ====================
+# ==================== APP ====================
 app = FastAPI(
-    title="Production RAG API",
-    description="Upload PDFs/TXT and ask questions using retrieval-augmented generation. "
-                "This is a production-level system with edge case handling.",
-    version="1.0.0"
+    title="⚖️ Legal RAG Assistant",
+    description="Junior Legal Assistant — Indian Law Q&A with Hybrid Search, Reranking, Grounding & Citations",
+    version="2.1.0"
 )
 
-# Initialize ChromaDB and Embedding Model
-chroma_client = chromadb.PersistentClient(path=CHROMA_PATH)
-embedding_model = SentenceTransformer(EMBEDDING_MODEL)
-logger.info(f"Initialized ChromaDB at {CHROMA_PATH}")
-logger.info(f"Loaded embedding model: {EMBEDDING_MODEL}")
-# ===========================================================
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
-# ==================== ENDPOINTS ====================
-
-@app.post("/upload-pdf")
-async def upload_pdf(
-    file: UploadFile = File(..., description="PDF or TXT file to upload"),
-    collection_name: str = "documents"
-):
-    """
-    Upload and process a document (PDF or TXT)
+# ==================== STARTUP ====================
+@app.on_event("startup")
+async def startup():
+    logger.info("Loading indices...")
     
-    Args:
-        file: PDF or TXT file
-        collection_name: Name of collection to store in
-        
-    Returns:
-        Success message with processing stats
-    """
-    try:
-        logger.info(f"Received upload request: {file.filename}")
-        
-        # ===== VALIDATION 1: File Extension =====
-        file_extension = Path(file.filename).suffix.lower()
-        if file_extension not in ALLOWED_EXTENSIONS:
-            logger.warning(f"Invalid file type: {file_extension}")
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid file type. Only {', '.join(ALLOWED_EXTENSIONS)} files are allowed. Got: {file_extension}"
-            )
-        
-        logger.info(f"✅ File type validation passed: {file_extension}")
-        
-        # ===== VALIDATION 2: File Size =====
-        contents = await file.read()
-        file_size = len(contents)
-        
-        if file_size > MAX_FILE_SIZE:
-            logger.warning(f"File too large: {file_size / (1024*1024):.1f}MB")
-            raise HTTPException(
-                status_code=400,
-                detail=f"File too large. Maximum size: {MAX_FILE_SIZE / (1024*1024):.0f}MB. Your file: {file_size / (1024*1024):.1f}MB"
-            )
-        
-        if file_size == 0:
-            logger.warning("Empty file uploaded")
-            raise HTTPException(
-                status_code=400,
-                detail="File is empty. Please upload a valid document."
-            )
-        
-        logger.info(f"✅ File size validation passed: {file_size / 1024:.1f}KB")
-        
-        # Reset file pointer
-        await file.seek(0)
-        
-        # ===== VALIDATION 3: Save Temporarily =====
-        file_path = UPLOAD_DIR / file.filename
-        with open(file_path, "wb") as buffer:
-            buffer.write(contents)
-        
-        logger.info(f"Saved file to: {file_path}")
-        
-        # ===== VALIDATION 4: Text Extraction =====
-        try:
-            if file_extension == '.pdf':
-                loader = PyPDFLoader(str(file_path))
-                documents = loader.load()
-            elif file_extension == '.txt':
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    text = f.read()
-                documents = [Document(page_content=text, metadata={"source": file.filename, "page": 0})]
-            
-            logger.info(f"✅ Extracted from {len(documents)} page(s)")
-            
-        except Exception as e:
-            file_path.unlink(missing_ok=True)
-            logger.error(f"Text extraction failed: {str(e)}")
-            raise HTTPException(
-                status_code=400,
-                detail=f"Failed to extract text from file. The file may be corrupted or password-protected. Error: {str(e)}"
-            )
-        
-        # ===== VALIDATION 5: Check Text Content =====
-        total_text = " ".join([doc.page_content for doc in documents])
-        
-        if len(total_text.strip()) < MIN_TEXT_LENGTH:
-            file_path.unlink(missing_ok=True)
-            logger.warning(f"Too little text extracted: {len(total_text)} chars")
-            raise HTTPException(
-                status_code=400,
-                detail=f"Document contains too little text ({len(total_text)} characters). Minimum required: {MIN_TEXT_LENGTH} characters. The file may be image-based or corrupted."
-            )
-        
-        logger.info(f"✅ Text extraction successful: {len(total_text)} characters")
-        
-        # ===== Chunking =====
-        text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=CHUNK_SIZE,
-            chunk_overlap=CHUNK_OVERLAP
-        )
-        chunks = text_splitter.split_documents(documents)
-        
-        if len(chunks) == 0:
-            file_path.unlink(missing_ok=True)
-            logger.error("No chunks created")
-            raise HTTPException(
-                status_code=400,
-                detail="No text chunks could be created from this document."
-            )
-        
-        logger.info(f"Created {len(chunks)} chunks")
-        
-        # ===== Generate Embeddings =====
-        texts = [chunk.page_content for chunk in chunks]
-        embeddings = embedding_model.encode(texts, normalize_embeddings=True)
-        
-        # Sanitize collection name
-        collection_name = sanitize_collection_name(collection_name)
-        
-        # Get or create collection
-        try:
-            collection = chroma_client.get_collection(collection_name)
-            logger.info(f"Using existing collection: {collection_name}")
-        except:
-            collection = chroma_client.create_collection(collection_name)
-            logger.info(f"Created new collection: {collection_name}")
-        
-        # ===== Store in ChromaDB =====
-        ids = [f"{file.filename}_chunk_{i}" for i in range(len(chunks))]
-        metadatas = [
-            {
-                "source": file.filename,
-                "page": chunk.metadata.get("page", 0),
-                "chunk_id": i,
-                "file_size": file_size,
-                "total_chunks": len(chunks)
-            }
-            for i, chunk in enumerate(chunks)
-        ]
-        
-        collection.add(
-            documents=texts,
-            embeddings=embeddings.tolist(),
-            metadatas=metadatas,
-            ids=ids
-        )
-        
-        logger.info(f"✅ Stored {len(chunks)} chunks in ChromaDB")
-        
-        # Optional: Clean up uploaded file
-        # file_path.unlink()
-        
-        return JSONResponse(
-            status_code=200,
-            content={
-                "message": "Document processed successfully",
-                "filename": file.filename,
-                "file_size_kb": round(file_size / 1024, 2),
-                "pages": len(documents),
-                "chunks_created": len(chunks),
-                "characters_extracted": len(total_text),
-                "collection": collection_name,
-                "total_documents_in_collection": collection.count()
-            }
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Unexpected error: {str(e)}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Internal server error while processing document: {str(e)}"
-        )
+    faiss_path = str(FAISS_INDEX_PATH)
+    if Path(faiss_path).exists():
+        vector_index.load(faiss_path)
+    else:
+        logger.warning(f"FAISS index not found. Run: python scripts/build_index.py")
+    
+    bm25_path = str(BM25_INDEX_PATH)
+    if Path(bm25_path).exists():
+        bm25_index.load(bm25_path)
+    else:
+        logger.warning(f"BM25 index not found. Run: python scripts/build_index.py")
+    
+    load_chunks_metadata()
+    logger.info("Startup complete.")
 
 
-@app.post("/ask", response_model=QueryResponse)
+# ==================== MAIN QUERY ENDPOINT ====================
+@app.post("/api/ask", response_model=QueryResponse)
 async def ask_question(request: QueryRequest):
     """
-    Ask a question about uploaded documents
-    
-    Args:
-        request: QueryRequest with question and settings
-        
-    Returns:
-        Answer with confidence scoring and sources
+    Ask a legal question — full 8-step pipeline.
     """
-    try:
-        logger.info(f"Received query: '{request.question}' for collection: '{request.collection_name}'")
-        
-        # ===== VALIDATION 1: Collection Exists =====
-        try:
-            collection = chroma_client.get_collection(request.collection_name)
-        except:
-            logger.warning(f"Collection not found: {request.collection_name}")
-            raise HTTPException(
-                status_code=404,
-                detail=f"Collection '{request.collection_name}' not found. Please upload documents first using /upload-pdf endpoint."
-            )
-        
-        # ===== VALIDATION 2: Collection Has Documents =====
-        if collection.count() == 0:
-            logger.warning(f"Collection is empty: {request.collection_name}")
-            raise HTTPException(
-                status_code=400,
-                detail=f"Collection '{request.collection_name}' is empty. Please upload documents first."
-            )
-        
-        logger.info(f"Collection has {collection.count()} document chunks")
-        
-        # ===== Generate Query Embedding =====
-        query_embedding = embedding_model.encode(
-            request.question,
-            normalize_embeddings=True
-        )
-        
-        # ===== Retrieve Relevant Chunks =====
-        results = collection.query(
-            query_embeddings=[query_embedding.tolist()],
-            n_results=5,  # Get top 5 for better context
-            include=["documents", "metadatas", "distances"]
-        )
-        
-        # ===== VALIDATION 3: Check If Results Found =====
-        if not results['documents'][0]:
-            logger.warning("No relevant documents found")
-            return QueryResponse(
-                answer="I couldn't find any relevant information in the documents to answer your question. Please try rephrasing your question or upload more relevant documents.",
-                confidence="none",
-                avg_similarity=0.0,
-                best_similarity=0.0,
-                source_documents=[],
-                warning="No relevant documents found"
-            )
-        
-        # ===== Calculate Similarities =====
-        similarities = [1 - (dist / 2) for dist in results['distances'][0]]
-        avg_similarity = sum(similarities) / len(similarities)
-        best_similarity = max(similarities)
-        
-        logger.info(f"Similarities: {[f'{s:.3f}' for s in similarities]}")
-        logger.info(f"Average: {avg_similarity:.3f}, Best: {best_similarity:.3f}")
-        
-        # ===== Get Confidence Level =====
-        confidence_level, warning = get_confidence_level(avg_similarity)
-        
-        # ===== Check Confidence Threshold =====
-        if avg_similarity < request.min_confidence:
-            logger.warning(f"Similarity {avg_similarity:.3f} below threshold {request.min_confidence}")
-            return QueryResponse(
-                answer=f"I found some potentially relevant information, but the confidence is too low (similarity: {avg_similarity:.2f}). The answer might not be accurate. Please try a more specific question or check if the relevant documents are uploaded.",
-                confidence="low",
-                avg_similarity=round(avg_similarity, 3),
-                best_similarity=round(best_similarity, 3),
-                source_documents=[
-                    {
-                        "text": doc[:200] + "...",
-                        "source": meta["source"],
-                        "page": meta.get("page", "N/A"),
-                        "similarity": round(sim, 3)
-                    }
-                    for doc, meta, sim in zip(
-                        results['documents'][0][:2],
-                        results['metadatas'][0][:2],
-                        similarities[:2]
-                    )
-                ],
-                warning=f"Low confidence answer (similarity: {avg_similarity:.2f})"
-            )
-        
-        # ===== Build Context =====
-        context_chunks = results['documents'][0][:3]  # Use top 3
-        context = "\n\n---\n\n".join(context_chunks)
-        
-        # ===== Generate Answer with LLM =====
-        api_key = os.getenv("GROQ_API_KEY")
-        if not api_key:
-            logger.error("GROQ_API_KEY not found")
-            raise HTTPException(
-                status_code=500,
-                detail="GROQ_API_KEY not configured. Please add it to your .env file."
-            )
-        
-        llm = ChatGroq(
-            model='llama-3.1-8b-instant',
-            temperature=0.1,
-            api_key=api_key
-        )
-        
-        prompt = f"""You are a helpful AI assistant. Answer the question based ONLY on the context provided below. 
-
-IMPORTANT RULES:
-1. If the context contains the answer, provide a clear and concise response
-2. If the context does NOT contain enough information, say: "I don't have enough information in the provided documents to answer this question accurately."
-3. Do NOT make up information or use knowledge outside the provided context
-4. Cite which part of the context you used if possible
-
-Context:
-{context}
-
-Question: {request.question}
-
-Answer:"""
-        
-        try:
-            answer = llm.invoke(prompt)
-            answer_text = answer.content
-            logger.info("✅ Answer generated successfully")
-        except Exception as e:
-            logger.error(f"LLM error: {str(e)}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"Error generating answer from LLM: {str(e)}"
-            )
-        
-        # ===== Format Source Documents =====
-        source_docs = [
-            {
-                "text": doc[:300] + ("..." if len(doc) > 300 else ""),
-                "source": meta["source"],
-                "page": meta.get("page", "N/A"),
-                "similarity": round(sim, 3),
-                "chunk_id": meta.get("chunk_id", "N/A")
-            }
-            for doc, meta, sim in zip(
-                results['documents'][0][:3],
-                results['metadatas'][0][:3],
-                similarities[:3]
-            )
-        ]
-        
+    logger.info(f"═══ Query: '{request.question}' | Mode: {request.search_mode} ═══")
+    
+    # Step 1: Query Expansion
+    expanded_queries = await expand_query(request.question)
+    logger.info(f"Step 1 — Expanded to {len(expanded_queries)} queries")
+    
+    # Step 2-3: Multi-Query Hybrid Search + RRF Fusion
+    search_results = await multi_query_hybrid_search(
+        queries=expanded_queries,
+        mode=request.search_mode
+    )
+    
+    if not search_results:
         return QueryResponse(
-            answer=answer_text,
-            confidence=confidence_level,
-            avg_similarity=round(avg_similarity, 3),
-            best_similarity=round(best_similarity, 3),
-            source_documents=source_docs,
-            warning=warning
+            answer="I could not find relevant information in the available legal documents to answer this question. Please try rephrasing your query or consult a qualified legal professional.",
+            confidence="none", confidence_score=0.0, best_similarity=0.0,
+            search_mode=request.search_mode, total_sources_searched=0,
+            queries_used=expanded_queries, citations=[], grounding=None,
+            warning="No relevant legal documents found."
         )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Query error: {str(e)}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error processing query: {str(e)}"
-        )
-
-
-@app.get("/collections")
-async def list_collections():
-    """List all available collections with document counts"""
-    try:
-        collections = chroma_client.list_collections()
-        return {
-            "total_collections": len(collections),
-            "collections": [
-                {
-                    "name": col.name,
-                    "document_count": col.count()
-                }
-                for col in collections
-            ]
-        }
-    except Exception as e:
-        logger.error(f"Error listing collections: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.delete("/collection/{collection_name}")
-async def delete_collection(collection_name: str):
-    """Delete a collection and all its documents"""
-    try:
-        chroma_client.delete_collection(collection_name)
-        logger.info(f"Deleted collection: {collection_name}")
-        return {"message": f"Collection '{collection_name}' deleted successfully"}
-    except Exception as e:
-        logger.error(f"Error deleting collection: {str(e)}")
-        raise HTTPException(
-            status_code=404,
-            detail=f"Collection not found or could not be deleted: {str(e)}"
-        )
-
-
-@app.get("/health")
-async def health_check():
-    """
-    Health check endpoint with system information
     
-    Returns:
-        System status and configuration
-    """
-    try:
-        collections = chroma_client.list_collections()
-        
-        return {
-            "status": "healthy",
-            "chroma_path": CHROMA_PATH,
-            "total_collections": len(collections),
-            "collections": [
-                {
-                    "name": col.name,
-                    "document_count": col.count()
-                }
-                for col in collections
-            ],
-            "config": {
-                "max_file_size_mb": MAX_FILE_SIZE / (1024 * 1024),
-                "allowed_extensions": ALLOWED_EXTENSIONS,
-                "embedding_model": EMBEDDING_MODEL,
-                "embedding_dimensions": EMBEDDING_DIMENSIONS,
-                "chunk_size": CHUNK_SIZE,
-                "chunk_overlap": CHUNK_OVERLAP
-            }
-        }
-    except Exception as e:
-        logger.error(f"Health check failed: {str(e)}")
-        return {
-            "status": "unhealthy",
-            "error": str(e)
-        }
+    logger.info(f"Step 2-3 — Retrieved {len(search_results)} candidates")
+    
+    # Step 4: Gather + Rerank
+    candidate_passages = []
+    for chunk_id, fusion_score in search_results[:RERANK_TOP_N * 4]:
+        chunk = get_chunk_by_id(chunk_id)
+        if chunk:
+            candidate_passages.append({
+                "chunk_id": chunk_id,
+                "text": chunk.get("text", ""),
+                "article_number": chunk.get("article_number"),
+                "section": chunk.get("section"),
+                "act_name": chunk.get("act_name"),
+                "part": chunk.get("part"),
+                "source_file": chunk.get("source_file", ""),
+                "page": chunk.get("page"),
+                "fusion_score": fusion_score,
+                "similarity_score": fusion_score,
+            })
+    
+    if not candidate_passages:
+        return QueryResponse(
+            answer="I could not find relevant information in the available legal documents.",
+            confidence="none", confidence_score=0.0, best_similarity=0.0,
+            search_mode=request.search_mode, total_sources_searched=len(search_results),
+            queries_used=expanded_queries, citations=[], grounding=None,
+            warning="Retrieved chunks could not be loaded."
+        )
+    
+    reranked = await rerank_passages(
+        query=request.question,
+        passages=candidate_passages,
+        top_n=CONTEXT_TOP_N
+    )
+    logger.info(f"Step 4 — Reranked to top {len(reranked)}")
+    
+    # Step 5: Context Filtering
+    filtered = filter_and_sanitize(reranked)
+    logger.info(f"Step 5 — Filtered to {len(filtered)} clean passages")
+    
+    # Step 6: LLM Generation
+    answer = await generate_legal_answer(
+        question=request.question,
+        passages=filtered
+    )
+    logger.info(f"Step 6 — Answer generated ({len(answer)} chars)")
+    
+    # Step 7: Answer Grounding Check
+    context_text = build_context(filtered)
+    grounding_result = await check_grounding(
+        question=request.question,
+        answer=answer,
+        context=context_text
+    )
+    logger.info(f"Step 7 — Grounding: faith={grounding_result.faithfulness:.2f}")
+    
+    grounding_warning = None
+    if not grounding_result.is_grounded:
+        grounding_warning = (
+            "⚠️ Some claims may not be fully supported by the "
+            "retrieved documents. Please verify with authoritative legal sources."
+        )
+    if grounding_result.ungrounded_claims:
+        grounding_warning = (
+            f"⚠️ Potentially ungrounded claims: "
+            f"{'; '.join(grounding_result.ungrounded_claims[:3])}"
+        )
+    
+    # Step 8: Real Confidence Scoring
+    confidence_score = grounding_result.overall_score
+    confidence_level, base_warning = get_confidence_level(confidence_score)
+    final_warning = grounding_warning or base_warning
+    
+    if confidence_score < request.min_confidence:
+        confidence_level = "low"
+        final_warning = (
+            f"Confidence ({confidence_score:.2f}) is below threshold "
+            f"({request.min_confidence}). {final_warning or ''}"
+        ).strip()
+    
+    best_score = max(
+        p.get("rerank_score", p.get("fusion_score", 0.0)) for p in filtered
+    )
+    
+    citations = [
+        CitationSource(
+            text=p["text"][:400] + ("..." if len(p["text"]) > 400 else ""),
+            article_number=p.get("article_number"),
+            section=p.get("section"),
+            act_name=p.get("act_name"),
+            part=p.get("part"),
+            page=p.get("page"),
+            similarity_score=round(p.get("fusion_score", 0.0), 4),
+            rerank_score=round(p.get("rerank_score", 0.0), 4) if p.get("rerank_score") else None
+        )
+        for p in filtered
+    ]
+    
+    grounding_metrics = GroundingMetrics(
+        faithfulness=grounding_result.faithfulness,
+        relevance=grounding_result.relevance,
+        coverage=grounding_result.coverage,
+        overall_score=grounding_result.overall_score,
+        is_grounded=grounding_result.is_grounded,
+        ungrounded_claims=grounding_result.ungrounded_claims
+    )
+    
+    logger.info(f"═══ Pipeline complete | Confidence: {confidence_level} ({confidence_score:.2f}) ═══")
+    
+    return QueryResponse(
+        answer=answer,
+        confidence=confidence_level,
+        confidence_score=round(confidence_score, 4),
+        best_similarity=round(best_score, 4),
+        search_mode=request.search_mode,
+        total_sources_searched=len(search_results),
+        queries_used=expanded_queries,
+        citations=citations,
+        grounding=grounding_metrics,
+        warning=final_warning
+    )
+
+
+# ==================== HEALTH ENDPOINT ====================
+@app.get("/api/health", response_model=HealthResponse)
+async def health_check():
+    """System health and status check."""
+    total_chunks = 0
+    meta_path = Path(CHUNKS_METADATA_PATH)
+    if meta_path.exists():
+        with open(meta_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            total_chunks = len(data)
+    
+    return HealthResponse(
+        status="healthy",
+        total_chunks_indexed=total_chunks,
+        bm25_index_loaded=bm25_index.is_loaded,
+        faiss_index_loaded=vector_index.is_loaded,
+        embedding_model=EMBEDDING_MODEL,
+        reranker_model=RERANKER_MODEL,
+        llm_model=LLM_MODEL
+    )
+
+
+# ==================== SERVE FRONTEND ====================
+frontend_dir = Path(__file__).parent / "frontend"
+
+@app.get("/")
+async def serve_index():
+    return FileResponse(str(frontend_dir / "index.html"))
+
+if frontend_dir.exists():
+    app.mount("/", StaticFiles(directory=str(frontend_dir)), name="static")
 
 
 # ==================== RUN ====================
-# Should be:
 PORT = int(os.getenv("PORT", 8000))
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=PORT)  # ✅ Uses PORT variable
+    uvicorn.run(app, host="0.0.0.0", port=PORT)

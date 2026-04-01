@@ -1,0 +1,49 @@
+{
+    "version": 2,
+    "builds": [
+        {
+            "src": "api/ask.py",
+            "use": "@vercel/python"
+        },
+        {
+            "src": "api/health.py",
+            "use": "@vercel/python"
+        },
+        {
+            "src": "frontend/**",
+            "use": "@vercel/static"
+        }
+    ],
+    "routes": [
+        {
+            "src": "/api/ask",
+            "dest": "/api/ask.py"
+        },
+        {
+            "src": "/api/health",
+            "dest": "/api/health.py"
+        },
+        {
+            "src": "/style.css",
+            "dest": "/frontend/style.css"
+        },
+        {
+            "src": "/script.js",
+            "dest": "/frontend/script.js"
+        },
+        {
+            "src": "/(.*)",
+            "dest": "/frontend/index.html"
+        }
+    ],
+    "functions": {
+        "api/ask.py": {
+            "maxDuration": 30,
+            "memory": 512
+        },
+        "api/health.py": {
+            "maxDuration": 10,
+            "memory": 256
+        }
+    }
+}
