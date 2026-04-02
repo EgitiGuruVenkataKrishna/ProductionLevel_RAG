@@ -3,7 +3,6 @@ venv/
 chroma_data/
 uploaded_files/
 *.png
-data/
 legal_docs/
 __pycache__/
 *.pyc

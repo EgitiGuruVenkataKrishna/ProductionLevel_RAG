@@ -124,12 +124,8 @@ async def health_check():
 # ==================== SERVE FRONTEND ====================
 frontend_dir = Path(__file__).parent / "frontend"
 
-@app.get("/")
-async def serve_index():
-    return FileResponse(str(frontend_dir / "index.html"))
-
 if frontend_dir.exists():
-    app.mount("/static", StaticFiles(directory=str(frontend_dir)), name="static")
+    app.mount("/", StaticFiles(directory=str(frontend_dir), html=True), name="frontend")
 
 
 # ==================== RUN ====================
