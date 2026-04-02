@@ -15,6 +15,7 @@ class QueryRequest(BaseModel):
     )
     search_mode: str = Field(
         default="hybrid",
+        pattern="^(hybrid|semantic|keyword)$",
         description="Search mode: 'hybrid', 'semantic', or 'keyword'"
     )
     min_confidence: float = Field(
@@ -59,6 +60,7 @@ class QueryResponse(BaseModel):
     citations: list[CitationSource]
     grounding: Optional[GroundingMetrics] = None
     warning: Optional[str] = None
+    degraded_mode: Optional[bool] = Field(default=False, description="True if semantic search failed and fell back to keyword-only")
 
 
 class HealthResponse(BaseModel):

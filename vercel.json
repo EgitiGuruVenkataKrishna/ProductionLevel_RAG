@@ -9,7 +9,7 @@
   "functions": {
     "api/*.py": {
       "maxDuration": 25,
-      "memory": 512
+      "memory": 1024
     }
   }
 }

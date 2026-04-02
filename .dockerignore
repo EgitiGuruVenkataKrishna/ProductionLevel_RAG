@@ -1,34 +1,16 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-env/
-venv/
-.venv
-
-# Data directories
-chroma_data/
-uploaded_files/
-*.db
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# Git
-.git/
-.gitignore
-
-# Images
-*.png
-*.jpg
-*.jpeg
-
-# Other
-README.md
 .env
 .env.example
+.git
+.gitignore
+.vercel
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.png
+*.md
+legal_docs/
+scripts/
+scripts/
+Dockerfile
+.dockerignore

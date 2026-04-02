@@ -1,32 +1,35 @@
 # ==================================================
-# Legal RAG — Vercel Deployment Dependencies
-# ==================================================
-# These are LIGHTWEIGHT deps deployed to Vercel serverless.
-# Heavy deps (sentence-transformers, torch) are LOCAL ONLY.
+# Legal RAG — Production Dependencies
 # ==================================================
 
 # Core API
 fastapi==0.109.0
 pydantic>=2.0
 
-# HTTP Client (for HF Inference API + Groq)
+# ASGI Server
+uvicorn>=0.25.0
+gunicorn>=21.2.0
+
+# HTTP Client
 httpx>=0.25.0
 
 # LLM
 groq>=0.4.0
 
-# Vector Search (lightweight, no torch dependency)
+# Vector Search
 faiss-cpu>=1.7.4
 numpy>=1.24.0
 
 # BM25 Keyword Search
 bm25s>=0.2.0
 
+# Rate Limiting
+slowapi>=0.1.9
+
 # Environment
 python-dotenv>=1.0.0
 
 # ==================================================
 # LOCAL ONLY — For building indices (not deployed)
-# Install separately:
 #   pip install sentence-transformers langchain-community pypdf
 # ==================================================

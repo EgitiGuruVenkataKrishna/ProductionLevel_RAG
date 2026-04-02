@@ -10,6 +10,7 @@ supported by the retrieved context. Computes real metrics:
 import logging
 import os
 import re
+import asyncio
 from groq import Groq
 
 from app.config import GROQ_API_KEY, LLM_MODEL
@@ -98,19 +99,23 @@ async def check_grounding(
         client = Groq(api_key=api_key)
         
         prompt = GROUNDING_PROMPT.format(
-            context=context[:3000],  # Cap context to stay within limits
+            context=context[:4000],  # Match MAX_CONTEXT_CHARS
             question=question,
             answer=answer[:1500]
         )
         
-        response = client.chat.completions.create(
-            model=LLM_MODEL,
-            messages=[
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.0,
-            max_tokens=300,
-        )
+        def _call_groq():
+            return client.chat.completions.create(
+                model=LLM_MODEL,
+                messages=[
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.0,
+                max_tokens=300,
+                timeout=15.0
+            )
+            
+        response = await asyncio.to_thread(_call_groq)
         
         raw = response.choices[0].message.content.strip()
         return _parse_grounding_response(raw)
@@ -189,6 +194,6 @@ def _default_result() -> GroundingResult:
         relevance=0.5,
         coverage=0.5,
         overall_score=0.5,
-        is_grounded=True,  # Assume grounded if we can't check
-        ungrounded_claims=[]
+        is_grounded=False,  # DO NOT Assume grounded if we can't check
+        ungrounded_claims=["System was unable to verify grounding. Please consult a qualified legal professional."]
     )

@@ -50,8 +50,10 @@ scrollBtn.addEventListener('click', () => {
 
 // ==================== MAIN SEND HANDLER ====================
 async function handleSend() {
+    if (isLoading) return;
+    
     const question = queryInput.value.trim();
-    if (!question || isLoading) return;
+    if (!question) return;
 
     isLoading = true;
     sendBtn.disabled = true;
@@ -87,13 +89,15 @@ async function handleSend() {
         appendAssistantResponse(data);
 
     } catch (error) {
-        loadingEl.remove();
         appendError(error.message || 'Failed to connect to the server. Please try again.');
+    } finally {
+        if (loadingEl && loadingEl.parentNode) {
+            loadingEl.remove();
+        }
+        isLoading = false;
+        sendBtn.disabled = false;
+        queryInput.focus();
     }
-
-    isLoading = false;
-    sendBtn.disabled = false;
-    queryInput.focus();
 }
 
 // ==================== MESSAGE RENDERING ====================
@@ -348,8 +352,9 @@ function formatMarkdown(text) {
     html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
     html = html.replace(/__(.*?)__/g, '<strong>$1</strong>');
     
-    // Italic: *text* or _text_  
-    html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
+    // Italic: *text* or _text_  (Only match when separated by space or boundary to avoid clobbering bold leftovers or footnotes)
+    html = html.replace(/\b_([^_]+)_\b/g, '<em>$1</em>');
+    html = html.replace(/(^|\s)\*([^*]+)\*(?=\s|[.,;:]|$)/g, '$1<em>$2</em>');
     
     // Citations in brackets: [Article 21, Constitution of India]
     html = html.replace(/\[([^\]]+)\]/g, '<strong style="color:var(--gold)">[$1]</strong>');
@@ -361,5 +366,12 @@ function formatMarkdown(text) {
     // Numbered lists: "1. " at start of line
     html = html.replace(/(?:^|<br>)(\d+)\.\s/g, '<br><strong>$1.</strong> ');
     
-    return `<p>${html}</p>`;
+    // Sanitize generated HTML using DOMPurify
+    if (typeof DOMPurify !== 'undefined') {
+        html = DOMPurify.sanitize(`<p>${html}</p>`, { ALLOWED_TAGS: ['p', 'strong', 'em', 'br'] });
+    } else {
+        html = `<p>${html}</p>`; 
+    }
+    
+    return html;
 }

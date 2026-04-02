@@ -32,12 +32,9 @@ async def rerank_passages(
     if not passages:
         return []
     
-    # Prepare pairs for cross-encoder
+    # Prepare pairs for cross-encoder (query, passage)
     inputs = {
-        "inputs": {
-            "source_sentence": query,
-            "sentences": [p["text"][:512] for p in passages]  # Truncate for model
-        }
+        "inputs": [[query, p["text"][:512]] for p in passages]
     }
     
     headers = {"Content-Type": "application/json"}

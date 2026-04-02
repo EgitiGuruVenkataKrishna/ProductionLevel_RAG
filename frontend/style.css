@@ -335,6 +335,12 @@ body {
 
 .citations-toggle:hover {
     color: var(--gold-light);
+    background-color: var(--bg-hover);
+}
+
+.citations-toggle:focus-visible {
+    outline: 2px solid var(--gold);
+    outline-offset: 2px;
 }
 
 .citations-toggle .arrow {
@@ -465,6 +471,11 @@ body {
     color: var(--gold);
 }
 
+.scroll-btn:focus-visible {
+    outline: 2px solid var(--gold);
+    outline-offset: 2px;
+}
+
 /* ==================== INPUT AREA ==================== */
 .input-area {
     flex-shrink: 0;
@@ -500,6 +511,12 @@ body {
 .mode-btn:hover {
     color: var(--text-secondary);
     border-color: var(--text-muted);
+    background-color: var(--border-color);
+}
+
+.mode-btn:focus-visible {
+    outline: 2px solid var(--gold);
+    outline-offset: 2px;
 }
 
 .mode-btn.active {

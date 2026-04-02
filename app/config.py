@@ -15,11 +15,11 @@ FAISS_INDEX_PATH = DATA_DIR / "faiss_index"
 BM25_INDEX_PATH = DATA_DIR / "bm25_index"
 CHUNKS_METADATA_PATH = DATA_DIR / "chunks_metadata.json"
 LEGAL_DOCS_DIR = BASE_DIR / "legal_docs"
-UPLOAD_DIR = BASE_DIR / "uploaded_files"
 
-# ==================== API KEYS ====================
+# ==================== API KEYS & CORS ====================
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 HF_API_TOKEN = os.getenv("HF_API_TOKEN", "")
+CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*")  # Comma-separated or *
 
 # ==================== MODEL CONFIG ====================
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"

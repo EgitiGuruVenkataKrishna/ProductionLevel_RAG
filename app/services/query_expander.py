@@ -6,6 +6,8 @@ to improve retrieval recall. Uses Groq LLM for expansion.
 """
 import logging
 import os
+import re
+import asyncio
 from groq import Groq
 
 from app.config import GROQ_API_KEY, LLM_MODEL
@@ -49,14 +51,18 @@ async def expand_query(question: str) -> list[str]:
     try:
         client = Groq(api_key=api_key)
         
-        response = client.chat.completions.create(
-            model=LLM_MODEL,
-            messages=[
-                {"role": "user", "content": EXPANSION_PROMPT.format(question=question)}
-            ],
-            temperature=0.4,
-            max_tokens=200,
-        )
+        def _call_groq():
+            return client.chat.completions.create(
+                model=LLM_MODEL,
+                messages=[
+                    {"role": "user", "content": EXPANSION_PROMPT.format(question=question)}
+                ],
+                temperature=0.4,
+                max_tokens=200,
+                timeout=15.0
+            )
+            
+        response = await asyncio.to_thread(_call_groq)
         
         raw = response.choices[0].message.content.strip()
         
@@ -66,12 +72,9 @@ async def expand_query(question: str) -> list[str]:
             line = line.strip()
             if not line:
                 continue
-            # Remove numbering: "1. ", "1) ", "1: "
-            cleaned = line
-            for prefix_len in range(1, 5):
-                if len(line) > prefix_len and line[prefix_len] in ".):- ":
-                    cleaned = line[prefix_len + 1:].strip()
-                    break
+            # Remove numbering: "1.", "1)", "1:", "10."
+            cleaned = re.sub(r'^\d+[\.\)\:\-]\s*', '', line).strip()
+            
             if cleaned and len(cleaned) > 5:
                 expanded.append(cleaned)
         

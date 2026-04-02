@@ -148,6 +148,7 @@ async def hybrid_search(
             logger.info(f"Semantic search returned {len(semantic_results)} results")
         else:
             logger.warning("Semantic search skipped — embedding failed")
+            # We degrade seamlessly. Handled at pipeline level.
     
     # BM25 keyword search
     if mode in ("hybrid", "keyword"):

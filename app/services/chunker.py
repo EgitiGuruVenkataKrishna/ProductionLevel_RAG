@@ -52,7 +52,7 @@ ACT_PATTERNS = [
     re.compile(r'(Bharatiya Nagarik Suraksha Sanhita|BNSS)', re.IGNORECASE),
     re.compile(r'(Indian Evidence Act)', re.IGNORECASE),
     re.compile(r'(Bharatiya Sakshya Adhiniyam|BSA)', re.IGNORECASE),
-    re.compile(r'(Right to Information Act|RTI)', re.IGNORECASE),
+    re.compile(r'\b(Right to Information Act|RTI)\b', re.IGNORECASE),
     re.compile(r'([\w\s]+Act,?\s*\d{4})', re.IGNORECASE),
 ]
 
@@ -156,11 +156,20 @@ def _recursive_split(text: str, chunk_size: int, overlap: int) -> list[str]:
             if chunks:
                 return chunks
     
-    # Last resort: hard split by character
-    for i in range(0, len(text), chunk_size - overlap):
-        chunk = text[i:i + chunk_size]
-        if len(chunk.strip()) >= MIN_CHUNK_SIZE:
-            chunks.append(chunk.strip())
+    # Last resort: hard split by character, handling words carefully (BUG-015)
+    _words = text.split()
+    current_chunk = ""
+    for word in _words:
+        if len(current_chunk) + len(word) + 1 > chunk_size and current_chunk:
+            chunks.append(current_chunk)
+            # Find overlap if any
+            overlap_words = current_chunk.split()[-int(overlap/5):] if overlap > 0 else []
+            current_chunk = " ".join(overlap_words + [word])
+        else:
+            current_chunk = current_chunk + " " + word if current_chunk else word
+            
+    if len(current_chunk.strip()) >= MIN_CHUNK_SIZE:
+        chunks.append(current_chunk.strip())
     
     return chunks
 
@@ -179,15 +188,24 @@ def hierarchical_chunk(text: str, source_file: str = "", page: int = None) -> li
     """
     chunks_with_meta = []
     
+    # Pre-process text to remove gazette of india headers and noise (BUG-014)
+    lines = text.split("\n")
+    clean_lines = []
+    for line in lines:
+        if "THE GAZETTE OF INDIA" in line or line.strip() == "___" or "EXTRAORDINAR Y" in line:
+            continue
+        clean_lines.append(line)
+    clean_text = "\n".join(clean_lines)
+
     # Step 1: Split at article/section boundaries
-    raw_chunks = SPLIT_PATTERN.split(text)
+    raw_chunks = SPLIT_PATTERN.split(clean_text)
     
     # Filter empty chunks
     raw_chunks = [c.strip() for c in raw_chunks if c.strip() and len(c.strip()) >= MIN_CHUNK_SIZE]
     
     # If no legal boundaries found, the whole text is one block
     if len(raw_chunks) <= 1:
-        raw_chunks = [text]
+        raw_chunks = [clean_text.strip()]
     
     # Step 2: Process each chunk
     final_texts = []

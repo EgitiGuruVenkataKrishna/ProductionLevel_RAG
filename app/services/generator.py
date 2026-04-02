@@ -5,6 +5,7 @@ Uses Groq API for fast inference with a strict legal persona.
 """
 import logging
 import os
+import asyncio
 from groq import Groq
 
 from app.config import (
@@ -100,21 +101,25 @@ async def generate_legal_answer(
     try:
         client = Groq(api_key=api_key)
         
-        chat_completion = client.chat.completions.create(
-            model=LLM_MODEL,
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are a Junior Legal Assistant specializing in Indian Law. Follow ALL instructions in the user message precisely."
-                },
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ],
-            temperature=LLM_TEMPERATURE,
-            max_tokens=1024,
-        )
+        def _call_groq():
+            return client.chat.completions.create(
+                model=LLM_MODEL,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a Junior Legal Assistant specializing in Indian Law. Follow ALL instructions in the user message precisely."
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                temperature=LLM_TEMPERATURE,
+                max_tokens=1024,
+                timeout=15.0
+            )
+            
+        chat_completion = await asyncio.to_thread(_call_groq)
         
         answer = chat_completion.choices[0].message.content
         logger.info(f"LLM generated answer ({len(answer)} chars)")
