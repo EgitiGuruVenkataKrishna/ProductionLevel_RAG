@@ -19,9 +19,15 @@ async def run_ask_pipeline(request: QueryRequest) -> QueryResponse:
     """Run the complete 8-step RAG pipeline."""
     logger.info(f"═══ Query: '{request.question}' | Mode: {request.search_mode} ═══")
     
-    # ──── Step 1: Query Expansion ────
-    expanded_queries = await expand_query(request.question)
-    logger.info(f"Step 1 — Expanded to {len(expanded_queries)} queries")
+    # ──── Step 1: Query Intent & Expansion ────
+    is_strategy = "[FACTS]:" in request.question.upper()
+    
+    if is_strategy:
+        expanded_queries = [request.question]
+        logger.info("Step 1 — Skipped query expansion for complex Strategy query")
+    else:
+        expanded_queries = await expand_query(request.question)
+        logger.info(f"Step 1 — Expanded to {len(expanded_queries)} queries")
     
     # ──── Step 2+3: Multi-Query Hybrid Search + RRF Fusion ────
     search_results = await multi_query_hybrid_search(
@@ -97,10 +103,27 @@ async def run_ask_pipeline(request: QueryRequest) -> QueryResponse:
     # ──── Step 6: LLM Generation ────
     answer = await generate_legal_answer(
         question=request.question,
-        passages=filtered
+        passages=filtered,
+        is_strategy=is_strategy
     )
     logger.info(f"Step 6 — Answer generated ({len(answer)} chars)")
     
+    # ──── Step 6.5: Intercept Greetings & Non-Legal Queries ────
+    if "GREETING_OR_NON_LEGAL_QUERY" in answer:
+        return QueryResponse(
+            answer="**Hello!** I am a Legal Assistant specializing in Indian Law. I can help you with questions about the Constitution, IPC, BNS, and various Acts.\n\n*Please ask me a legal question or present a legal scenario to get started!*",
+            confidence="high",
+            confidence_score=1.0,
+            best_similarity=0.0,
+            search_mode=request.search_mode,
+            total_sources_searched=0,
+            queries_used=[request.question],
+            citations=[],
+            grounding=None,
+            warning=None,
+            degraded_mode=False
+        )
+
     # ──── Step 7: Answer Grounding Check ────
     context_text = build_context(filtered)
     grounding_result = await check_grounding(
@@ -131,7 +154,10 @@ async def run_ask_pipeline(request: QueryRequest) -> QueryResponse:
     
     # Combine warnings
     final_warning = grounding_warning or base_warning
-    if confidence_score < request.min_confidence:
+    if confidence_level == "rejected":
+        answer = "I apologize, but I do not have enough specific, reliable legal context to answer this safely. To avoid providing incorrect information, please consult a Senior Advocate."
+        final_warning = base_warning
+    elif confidence_score < request.min_confidence:
         confidence_level = "low"
         final_warning = (
             f"Confidence ({confidence_score:.2f}) is below your threshold ({request.min_confidence}). "

@@ -149,17 +149,27 @@ def _parse_grounding_response(raw: str) -> GroundingResult:
                         if c.strip() and c.strip().lower() != "none"
                     ]
         
+        # Apply strict penalty if entirely ungrounded claims exist
+        if result.ungrounded_claims and len(result.ungrounded_claims) > 0:
+            penalty = len(result.ungrounded_claims) * 0.15
+            result.faithfulness = max(0.0, result.faithfulness - penalty)
+
         # Weighted overall score: faithfulness matters most for legal
         result.overall_score = (
-            result.faithfulness * 0.50 +
+            result.faithfulness * 0.60 +
             result.relevance * 0.30 +
-            result.coverage * 0.20
+            result.coverage * 0.10
         )
         
-        # Consider grounded if faithfulness >= 0.7 and overall >= 0.5
+        # If faithfulness is critically low, tank the score to ensure it hits very_low threshold
+        if result.faithfulness < 0.3:
+            result.overall_score = min(result.overall_score, 0.15)
+        
+        # Consider grounded if faithfulness >= 0.7 and overall >= 0.5 and no ungrounded claims
         result.is_grounded = (
             result.faithfulness >= 0.7 and 
-            result.overall_score >= 0.5
+            result.overall_score >= 0.5 and
+            len(result.ungrounded_claims) == 0
         )
         
         logger.info(

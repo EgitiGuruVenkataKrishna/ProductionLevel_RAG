@@ -27,6 +27,28 @@ queryInput.addEventListener('input', () => {
     queryInput.style.height = Math.min(queryInput.scrollHeight, 120) + 'px';
 });
 
+// ==================== TEMPLATE BUTTONS ====================
+const btnAnalyzeCase = document.getElementById('btnAnalyzeCase');
+const btnSpotIssues = document.getElementById('btnSpotIssues');
+
+if (btnAnalyzeCase) {
+    btnAnalyzeCase.addEventListener('click', () => {
+        queryInput.value = "[FACTS]: \n\n[GOAL]: \n\n[EVIDENCE/DOUBTS]: ";
+        queryInput.focus();
+        queryInput.style.height = 'auto';
+        queryInput.style.height = queryInput.scrollHeight + 'px';
+    });
+}
+
+if (btnSpotIssues) {
+    btnSpotIssues.addEventListener('click', () => {
+        queryInput.value = "[FACTS]: \n\n[SPECIFIC_QUESTION_OR_CONCERN]: ";
+        queryInput.focus();
+        queryInput.style.height = 'auto';
+        queryInput.style.height = queryInput.scrollHeight + 'px';
+    });
+}
+
 // ==================== SEND ON ENTER ====================
 queryInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -131,7 +153,7 @@ function appendAssistantResponse(data) {
     const queriesHtml = buildExpandedQueries(data.queries_used);
     const citationsHtml = buildCitations(data.citations);
     const warningHtml = data.warning 
-        ? `<p class="disclaimer">⚠️ ${escapeHtml(data.warning)}</p>` 
+        ? `<p class="disclaimer ${data.confidence === 'rejected' ? 'rejected-warning' : ''}">⚠️ ${escapeHtml(data.warning)}</p>` 
         : '';
 
     messageDiv.innerHTML = `
@@ -206,7 +228,8 @@ function buildConfidenceBadge(level, score) {
         medium: '🟡 Medium Confidence',
         low: '🔴 Low Confidence',
         very_low: '🔴 Very Low Confidence',
-        none: '⚪ No Match'
+        none: '⚪ No Match',
+        rejected: '🛑 Safety Refusal'
     };
 
     const label = labels[level] || labels.none;
@@ -351,6 +374,10 @@ function formatMarkdown(text) {
     // Bold: **text** or __text__
     html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
     html = html.replace(/__(.*?)__/g, '<strong>$1</strong>');
+    
+    // IRAC Highlights
+    html = html.replace(/<strong>(ISSUE|RULE|APPLICATION|CONCLUSION):?<\/strong>/g, '<strong class="irac-highlight">$1:</strong>');
+    
     
     // Italic: *text* or _text_  (Only match when separated by space or boundary to avoid clobbering bold leftovers or footnotes)
     html = html.replace(/\b_([^_]+)_\b/g, '<em>$1</em>');

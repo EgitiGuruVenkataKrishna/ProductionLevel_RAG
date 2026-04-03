@@ -9,8 +9,8 @@ import asyncio
 from groq import Groq
 
 from app.config import (
-    LEGAL_SYSTEM_PROMPT, GROQ_API_KEY, LLM_MODEL, LLM_TEMPERATURE,
-    HIGH_CONFIDENCE, MEDIUM_CONFIDENCE, LOW_CONFIDENCE
+    LEGAL_SYSTEM_PROMPT, STRATEGY_SYSTEM_PROMPT, GROQ_API_KEY, LLM_MODEL, LLM_TEMPERATURE,
+    HIGH_CONFIDENCE, MEDIUM_CONFIDENCE, LOW_CONFIDENCE, VERY_LOW_CONFIDENCE
 )
 
 logger = logging.getLogger(__name__)
@@ -32,8 +32,10 @@ def get_confidence_level(score: float) -> tuple[str, str | None]:
         return "medium", "Moderate confidence — verify important legal details with a qualified advocate."
     elif score >= LOW_CONFIDENCE:
         return "low", "Low confidence — the retrieved information may not fully address your question."
-    else:
+    elif score >= VERY_LOW_CONFIDENCE:
         return "very_low", "Very low confidence — the system could not find closely relevant legal provisions."
+    else:
+        return "rejected", "Confidence too low to provide a safe answer. Please contact a Senior Advocate."
 
 
 def build_context(passages: list[dict]) -> str:
@@ -69,7 +71,8 @@ def build_context(passages: list[dict]) -> str:
 
 async def generate_legal_answer(
     question: str,
-    passages: list[dict]
+    passages: list[dict],
+    is_strategy: bool = False
 ) -> str:
     """
     Generate a legal answer using Groq LLM with strict legal prompt.
@@ -77,7 +80,8 @@ async def generate_legal_answer(
     Args:
         question: User's legal question
         passages: Reranked passages with text + metadata
-    
+        is_strategy: True to use deep 'Devil's Advocate' analytical prompt.
+        
     Returns:
         Generated answer string
     """
@@ -93,7 +97,8 @@ async def generate_legal_answer(
     context = build_context(passages)
     
     # Format the prompt
-    prompt = LEGAL_SYSTEM_PROMPT.format(
+    active_prompt = STRATEGY_SYSTEM_PROMPT if is_strategy else LEGAL_SYSTEM_PROMPT
+    prompt = active_prompt.format(
         context=context,
         question=question
     )
@@ -107,7 +112,7 @@ async def generate_legal_answer(
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are a Junior Legal Assistant specializing in Indian Law. Follow ALL instructions in the user message precisely."
+                        "content": "You are a Senior Legal Assistant specializing in Indian Law. You MUST use the STRICT IRAC (Issue, Rule, Application, Conclusion) framework for complex hypotheticals. Always check for specific conditions (e.g., number of perpetrators for dacoity). Never allow criminals to claim private defence against lawful force or self-defence (The Aggressor Rule). Base your entire application EXCLUSIVELY on the provided context."
                     },
                     {
                         "role": "user",
