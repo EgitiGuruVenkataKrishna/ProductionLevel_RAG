@@ -1,6 +1,6 @@
-# ⚖️ Legal RAG Assistant — Indian Law Q&A
+# ⚖️ Junior Lawyer AI — Indian Legal Strategy RAG
 
-> Production-grade Retrieval-Augmented Generation system for Indian legal questions — Constitution, IPC, BNS, RTI Act and more.
+> Production-grade Retrieval-Augmented Generation system evolved into a Junior Lawyer AI. Capable of fast statutory lookups and deep adversarial case strategy analysis.
 
 ![Legal RAG](https://img.shields.io/badge/Version-2.1.0-gold) ![Python](https://img.shields.io/badge/Python-3.10+-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-0.109-green) ![Deploy](https://img.shields.io/badge/Deploy-Vercel-black)
 
@@ -13,10 +13,11 @@ LLMs alone hallucinate legal provisions. A wrong section number or fabricated ar
 This system implements a **production-grade 8-step RAG pipeline** that:
 
 - Retrieves relevant legal provisions using **hybrid search (BM25 + FAISS)**
-- Reranks results using a **cross-encoder model**
+- Employs **Intelligent Routing** to split fast lookups from deep strategic analysis
+- Identifies "Bad Facts" using an adversarial *Devil's Advocate* strategy prompt
 - Generates answers grounded in **specific Articles, Sections, and Acts**
-- Verifies every claim with an **answer grounding checker**
-- Provides **real confidence scoring and citations**
+- Executes **Hard Safety Refusals** if confidence drops below 20% (intercepting hallucinations)
+- Supplies **Frontend Strategy Templates** to standardize prompt structuring
 
 👉 Built as a **serious legal AI backend**, not a demo chatbot.
 
@@ -160,16 +161,20 @@ docker run -p 8000:8000 --env-file .env legal-rag
 |----------|----------|
 | **Bharatiya Nyaya Sanhita (BNS), 2023** | Full text — new criminal code |
 | **Indian Penal Code (IPC)** | All sections |
+| **Constitution of India** | Latest provisions & updates |
+| **Civil Procedure Code (CPC)** | Full text |
+| **Indian Contract Act** | Full text |
 | **RTI Act, 2005** | Amended version |
 
 ---
 
 ## ⚡ Engineering Highlights
 
+- **Adversarial Strategy Mode**: Dedicated logic for identifying "bad facts" and stress-testing legal theories.
+- **Intent Routing**: Fast-path execution that skips query expansion on complex conversational inputs to reduce API latency.
 - **Hybrid Search**: BM25 keyword + FAISS semantic, merged via Reciprocal Rank Fusion
 - **Legal-Aware Chunking**: Splits at Article/Section boundaries, attaches legal metadata
-- **Answer Grounding**: LLM verifies its own answer against source context (faithfulness, relevance, coverage)
-- **Strict Legal Persona**: System prompt prevents hallucination and enforces citation format
+- **Strict Grounding Penalty**: Mathematically drops confidence scores to trigger "Safety Refusals" on ungrounded claims.
 - **Graceful Degradation**: Falls back to keyword-only if embedding API fails
 - **Rate Limiting**: Protects external API quotas from abuse
 
