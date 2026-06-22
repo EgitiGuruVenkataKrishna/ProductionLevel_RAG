@@ -1,4 +1,4 @@
-"""
+﻿"""
 Cross-Encoder Reranker via Cohere API.
 
 Reranks the top candidates from hybrid search using Cohere's

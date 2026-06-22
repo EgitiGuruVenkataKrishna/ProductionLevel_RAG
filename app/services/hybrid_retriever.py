@@ -198,8 +198,7 @@ async def hybrid_search(
         mode: 'hybrid', 'semantic', or 'keyword'
         semantic_top_k: Top-K for semantic search
         bm25_top_k: Top-K for BM25 search
-    """
-    
+        
     Returns:
         List of (chunk_id, score) tuples, sorted by relevance
     """
@@ -223,7 +222,7 @@ async def hybrid_search(
             )
             logger.info(f"Semantic search returned {len(semantic_results)} results")
         else:
-            logger.warning("Semantic search skipped — embedding failed")
+            logger.warning("Semantic search skipped - embedding failed")
             # We degrade seamlessly. Handled at pipeline level.
     
     # BM25 keyword search
@@ -260,7 +259,7 @@ async def multi_query_hybrid_search(
     are merged with additive scoring so documents appearing in multiple
     query results rank higher.
     
-    Latency: O(1 × single_query_latency) instead of O(N × single_query_latency).
+    Latency: O(1 x single_query_latency) instead of O(N x single_query_latency).
     
     Args:
         queries: List of query strings (original + expansions)
@@ -301,7 +300,7 @@ async def multi_query_hybrid_search(
     merged = sorted(accumulated_scores.items(), key=lambda x: x[1], reverse=True)
     
     logger.info(
-        f"Multi-query search: {len(queries)} queries (parallel) → "
+        f"Multi-query search: {len(queries)} queries (parallel) -> "
         f"{len(merged)} unique candidates"
     )
     
@@ -310,6 +309,7 @@ async def multi_query_hybrid_search(
 
 def multi_query_hybrid_search_sync(
     queries: list[str],
+    original_query: str,
     mode: str = "hybrid",
     semantic_top_k: int = SEMANTIC_TOP_K,
     bm25_top_k: int = BM25_TOP_K
@@ -318,10 +318,9 @@ def multi_query_hybrid_search_sync(
     Synchronous wrapper for multi_query_hybrid_search.
     
     For backward compatibility with sync callers.
-    Do NOT call from within an already-running event loop — use the async
+    Do NOT call from within an already-running event loop - use the async
     variant directly instead.
     """
     return asyncio.run(
-        multi_query_hybrid_search(queries, mode, semantic_top_k, bm25_top_k)
+        multi_query_hybrid_search(queries, original_query, mode, semantic_top_k, bm25_top_k)
     )
-

@@ -1,4 +1,4 @@
-"""
+﻿"""
 Query Expansion Service.
 
 Generates a dense HyDE paragraph from the user's legal question
@@ -34,7 +34,7 @@ async def expand_query(question: str) -> list[str]:
     api_key = GROQ_API_KEY or os.getenv("GROQ_API_KEY", "")
     
     if not api_key:
-        logger.warning("No GROQ_API_KEY — skipping query expansion")
+        logger.warning("No GROQ_API_KEY - skipping query expansion")
         return [question]
     
     try:

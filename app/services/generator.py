@@ -1,4 +1,4 @@
-"""
+﻿"""
 LLM Generator with Legal System Prompt.
 
 Uses Groq API for fast inference with a strict legal persona.
@@ -31,11 +31,11 @@ def get_confidence_level(score: float) -> tuple[str, str | None]:
     if score >= HIGH_CONFIDENCE:
         return "high", None
     elif score >= MEDIUM_CONFIDENCE:
-        return "medium", "Moderate confidence — verify important legal details with a qualified advocate."
+        return "medium", "Moderate confidence - verify important legal details with a qualified advocate."
     elif score >= LOW_CONFIDENCE:
-        return "low", "Low confidence — the retrieved information may not fully address your question."
+        return "low", "Low confidence - the retrieved information may not fully address your question."
     elif score >= VERY_LOW_CONFIDENCE:
-        return "very_low", "Very low confidence — the system could not find closely relevant legal provisions."
+        return "very_low", "Very low confidence - the system could not find closely relevant legal provisions."
     else:
         return "rejected", "Confidence too low to provide a safe answer. Please contact a Senior Advocate."
 
@@ -162,7 +162,7 @@ After generating your answer, rate your own faithfulness:
 - faithfulness_score: What fraction of your claims are directly supported by the context? (0.0–1.0)
 - List any claims you made that are NOT directly stated in the context.
 
-OUTPUT FORMAT — You MUST respond with ONLY a valid JSON object, no other text:
+OUTPUT FORMAT - You MUST respond with ONLY a valid JSON object, no other text:
 {{
   "answer": "<your legal answer using IRAC>",
   "citations": ["<Section/Article cited>", ...],
@@ -189,7 +189,7 @@ CRITICAL INSTRUCTIONS:
 SELF-VERIFICATION:
 After generating your analysis, rate your own faithfulness to the provided context.
 
-OUTPUT FORMAT — You MUST respond with ONLY a valid JSON object, no other text:
+OUTPUT FORMAT - You MUST respond with ONLY a valid JSON object, no other text:
 {{
   "answer": "<your strategy analysis>",
   "citations": ["<Section/Article cited>", ...],
@@ -355,9 +355,9 @@ def _parse_merged_response(raw: str) -> MergedGenerationResult:
         # Fallback: treat the entire raw response as the answer
         logger.warning(f"Failed to parse merged JSON response ({e}). Using raw text as answer.")
         result.answer = raw
-        result.faithfulness_score = 0.5  # Unknown — conservative default
+        result.faithfulness_score = 0.5  # Unknown - conservative default
         result.is_low_grounding = True
-        result.ungrounded_claims = ["JSON parsing failed — grounding could not be verified"]
+        result.ungrounded_claims = ["JSON parsing failed - grounding could not be verified"]
     
     return result
 
