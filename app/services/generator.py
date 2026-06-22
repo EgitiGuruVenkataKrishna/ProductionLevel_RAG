@@ -153,7 +153,9 @@ CRITICAL INSTRUCTIONS:
 6. Use formal legal language.
 
 CITATION FORMAT (use exactly):
-- IPC: [Section 302, Indian Penal Code, 1860]
+- You MUST explicitly cite the 'Act' and 'Section' from the provided metadata for every legal claim. 
+- Example: [Section 302, Indian Penal Code, 1860]. 
+- Do NOT hallucinate citations or section numbers that are not in the context.
 
 SELF-VERIFICATION:
 After generating your answer, rate your own faithfulness:

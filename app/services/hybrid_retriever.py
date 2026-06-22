@@ -17,7 +17,7 @@ from app.config import (
     USE_LOCAL_MODELS, USE_SQLITE_METADATA
 )
 from app.services.bm25_index import bm25_index
-from app.services.vector_index import vector_index
+from app.services.pinecone_index import pinecone_service
 
 # Import metadata store for SQLite chunks (Priority 4)
 if USE_SQLITE_METADATA:
@@ -169,21 +169,36 @@ def reciprocal_rank_fusion(
     return ranked
 
 
+import re
+
+def detect_category(query: str) -> Optional[str]:
+    q = query.lower()
+    if re.search(r'\b(tort|sue|negligence|liable|damage|injury)\b', q):
+        return 'Civil Torts'
+    if re.search(r'\b(crime|ipc|murder|theft|arrest|penal)\b', q):
+        return 'Criminal Law'
+    if re.search(r'\b(contract|agree|sign|breach|consideration)\b', q):
+        return 'Contract Law'
+    return None
+
 # ==================== HYBRID SEARCH ====================
 async def hybrid_search(
-    query: str,
+    query_to_embed: str,
+    original_query: str,
     mode: str = "hybrid",
     semantic_top_k: int = SEMANTIC_TOP_K,
     bm25_top_k: int = BM25_TOP_K
 ) -> list[tuple[int, float]]:
     """
-    Perform hybrid search combining semantic + BM25.
+    Perform hybrid search combining semantic (Pinecone) + BM25.
     
     Args:
-        query: User's question
+        query_to_embed: The HyDE paragraph
+        original_query: The raw user query (for intent detection)
         mode: 'hybrid', 'semantic', or 'keyword'
         semantic_top_k: Top-K for semantic search
         bm25_top_k: Top-K for BM25 search
+    """
     
     Returns:
         List of (chunk_id, score) tuples, sorted by relevance
@@ -191,11 +206,21 @@ async def hybrid_search(
     semantic_results = []
     bm25_results = []
     
-    # Semantic search
+    # Semantic search (Pinecone)
     if mode in ("hybrid", "semantic"):
-        query_embedding = await embed_query(query)
+        category_filter = detect_category(original_query)
+        if category_filter:
+            logger.info(f"Regex intent matched. Applying Pinecone filter: {category_filter}")
+            
+        query_embedding = await embed_query(query_to_embed)
         if query_embedding is not None:
-            semantic_results = vector_index.search(query_embedding, top_k=semantic_top_k)
+            # Pinecone requires python native floats
+            query_embedding_list = query_embedding.tolist()
+            semantic_results = await pinecone_service.search(
+                vector=query_embedding_list, 
+                top_k=semantic_top_k, 
+                category_filter=category_filter
+            )
             logger.info(f"Semantic search returned {len(semantic_results)} results")
         else:
             logger.warning("Semantic search skipped — embedding failed")
@@ -203,7 +228,7 @@ async def hybrid_search(
     
     # BM25 keyword search
     if mode in ("hybrid", "keyword"):
-        bm25_results = bm25_index.search(query, top_k=bm25_top_k)
+        bm25_results = bm25_index.search(original_query, top_k=bm25_top_k)
         logger.info(f"BM25 search returned {len(bm25_results)} results")
     
     # Fusion
@@ -223,6 +248,7 @@ async def hybrid_search(
 # ==================== MULTI-QUERY HYBRID SEARCH ====================
 async def multi_query_hybrid_search(
     queries: list[str],
+    original_query: str,
     mode: str = "hybrid",
     semantic_top_k: int = SEMANTIC_TOP_K,
     bm25_top_k: int = BM25_TOP_K
@@ -250,7 +276,7 @@ async def multi_query_hybrid_search(
     
     # Dispatch all queries concurrently
     tasks = [
-        hybrid_search(query, mode, semantic_top_k, bm25_top_k)
+        hybrid_search(query, original_query, mode, semantic_top_k, bm25_top_k)
         for query in queries
     ]
     all_results = await asyncio.gather(*tasks, return_exceptions=True)

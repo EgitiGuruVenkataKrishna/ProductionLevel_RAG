@@ -19,6 +19,9 @@ LEGAL_DOCS_DIR = BASE_DIR / "legal_docs"
 # ==================== API KEYS & CORS ====================
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 HF_API_TOKEN = os.getenv("HF_API_TOKEN", "")
+PINECONE_API_KEY = os.getenv("PINECONE_API_KEY", "")
+PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME", "legal-rag")
+COHERE_API_KEY = os.getenv("COHERE_API_KEY", "")
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*")  # Comma-separated or *
 
 # ==================== FEATURE FLAGS ====================
@@ -27,10 +30,10 @@ USE_SQLITE_METADATA = os.getenv("USE_SQLITE_METADATA", "false").lower() == "true
 USE_AGENTIC_PIPELINE = os.getenv("USE_AGENTIC_PIPELINE", "false").lower() == "true"
 
 # ==================== MODEL CONFIG ====================
-EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
-EMBEDDING_DIMENSIONS = 384
-RERANKER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
-LLM_MODEL = "llama-3.1-8b-instant"
+EMBEDDING_MODEL = "BAAI/bge-large-en-v1.5"
+EMBEDDING_DIMENSIONS = 1024
+RERANKER_MODEL = "rerank-v3.0"
+LLM_MODEL = "llama-3.3-70b-versatile"
 LLM_TEMPERATURE = 0.1
 
 # ==================== RETRIEVAL CONFIG ====================

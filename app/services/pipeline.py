@@ -44,6 +44,7 @@ async def run_ask_pipeline(request: QueryRequest) -> QueryResponse:
     # ──── Step 2+3: Multi-Query Hybrid Search + RRF Fusion ────
     search_results = await multi_query_hybrid_search(
         queries=expanded_queries,
+        original_query=request.question,
         mode=request.search_mode
     )
     

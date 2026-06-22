@@ -1,29 +1,23 @@
 """
-Cross-Encoder Reranker via HuggingFace Inference API.
+Cross-Encoder Reranker via Cohere API.
 
-Reranks the top candidates from hybrid search using a
-cross-encoder model for more accurate relevance scoring.
+Reranks the top candidates from hybrid search using Cohere's
+rerank-v3.0 model for maximum syntactic relevance scoring.
 """
 import logging
-import httpx
+import os
+import asyncio
 from typing import Optional
 
-from app.config import HF_RERANKER_URL, HF_API_TOKEN, RERANK_TOP_N, USE_LOCAL_MODELS
+try:
+    import cohere
+    COHERE_AVAILABLE = True
+except ImportError:
+    COHERE_AVAILABLE = False
+
+from app.config import COHERE_API_KEY, RERANKER_MODEL, RERANK_TOP_N
 
 logger = logging.getLogger(__name__)
-
-# Initialize local cross-encoder model if configured
-_local_reranker_model = None
-if USE_LOCAL_MODELS:
-    try:
-        from fastembed import TextCrossEncoder
-        logger.info("Initializing FastEmbed TextCrossEncoder for local reranking...")
-        # Using a standard lightweight cross-encoder model for FastEmbed
-        _local_reranker_model = TextCrossEncoder(model_name="BAAI/bge-reranker-base")
-    except ImportError:
-        logger.error("fastembed not installed. Falling back to HF Inference API.")
-        USE_LOCAL_MODELS = False
-
 
 async def rerank_passages(
     query: str,
@@ -31,10 +25,10 @@ async def rerank_passages(
     top_n: int = RERANK_TOP_N
 ) -> list[dict]:
     """
-    Rerank passages using cross-encoder model via HF Inference API.
+    Rerank passages using Cohere API.
     
     Args:
-        query: The user's question
+        query: The user's original question
         passages: List of dicts with at least 'text' and 'chunk_id' keys
         top_n: Number of top results to return after reranking
     
@@ -44,84 +38,42 @@ async def rerank_passages(
     if not passages:
         return []
         
-    if USE_LOCAL_MODELS and _local_reranker_model:
-        try:
-            # FastEmbed TextCrossEncoder expects pairs of (query, passage)
-            # It returns a generator yielding arrays of scores
-            pairs = [(query, p["text"][:512]) for p in passages]
-            scores_gen = _local_reranker_model.rerank(pairs)
-            scores = list(scores_gen)
-            
-            # Attach scores to passages
-            for i, passage in enumerate(passages):
-                passage["rerank_score"] = float(scores[i])
-                
-            # Sort by rerank score descending
-            reranked = sorted(passages, key=lambda x: x.get("rerank_score", 0.0), reverse=True)
-            logger.info(f"Local reranked {len(passages)} → top {top_n} | "
-                      f"Best score: {reranked[0].get('rerank_score', 0):.4f}")
-            return reranked[:top_n]
-        except Exception as e:
-            logger.error(f"Local FastEmbed reranker failed: {e}")
-            return _fallback_rerank(passages, top_n)
+    api_key = COHERE_API_KEY or os.getenv("COHERE_API_KEY", "")
     
-    # Prepare pairs for HF cross-encoder (query, passage)
-    inputs = {
-        "inputs": [[query, p["text"][:512]] for p in passages]
-    }
-    
-    headers = {"Content-Type": "application/json"}
-    if HF_API_TOKEN:
-        headers["Authorization"] = f"Bearer {HF_API_TOKEN}"
+    if not COHERE_AVAILABLE or not api_key:
+        logger.warning("Cohere not available or API key missing. Using fallback ordering.")
+        return _fallback_rerank(passages, top_n)
     
     try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            response = await client.post(
-                HF_RERANKER_URL,
-                headers=headers,
-                json=inputs
+        co = cohere.Client(api_key=api_key)
+        
+        # Cohere expects a list of text strings
+        docs = [p["text"] for p in passages]
+        
+        def _call_cohere():
+            return co.rerank(
+                query=query,
+                documents=docs,
+                top_n=top_n,
+                model=RERANKER_MODEL
             )
             
-            if response.status_code == 200:
-                scores = response.json()
-                
-                # Handle different response formats
-                if isinstance(scores, list):
-                    # Attach scores to passages
-                    for i, passage in enumerate(passages):
-                        if i < len(scores):
-                            score = scores[i]
-                            # Handle nested format
-                            if isinstance(score, dict):
-                                passage["rerank_score"] = float(score.get("score", 0.0))
-                            else:
-                                passage["rerank_score"] = float(score)
-                        else:
-                            passage["rerank_score"] = 0.0
-                else:
-                    logger.warning(f"Unexpected reranker response format: {type(scores)}")
-                    return _fallback_rerank(passages, top_n)
-                
-                # Sort by rerank score descending
-                reranked = sorted(passages, key=lambda x: x.get("rerank_score", 0.0), reverse=True)
-                
-                logger.info(f"Reranked {len(passages)} → top {top_n} | "
-                          f"Best score: {reranked[0].get('rerank_score', 0):.4f}")
-                
-                return reranked[:top_n]
+        response = await asyncio.to_thread(_call_cohere)
+        
+        # Create a new list for the reranked results
+        reranked = []
+        for result in response.results:
+            idx = result.index
+            passage = passages[idx].copy()
+            passage["rerank_score"] = float(result.relevance_score)
+            reranked.append(passage)
             
-            elif response.status_code == 503:
-                logger.warning("Reranker model loading. Using fallback ordering.")
-                return _fallback_rerank(passages, top_n)
-            else:
-                logger.error(f"Reranker API error {response.status_code}: {response.text[:200]}")
-                return _fallback_rerank(passages, top_n)
+        logger.info(f"Cohere reranked {len(passages)} → top {len(reranked)} | "
+                    f"Best score: {reranked[0].get('rerank_score', 0):.4f}")
+        return reranked
     
-    except httpx.TimeoutException:
-        logger.warning("Reranker API timeout. Using fallback ordering.")
-        return _fallback_rerank(passages, top_n)
     except Exception as e:
-        logger.error(f"Reranker failed: {e}")
+        logger.error(f"Cohere reranker failed: {e}")
         return _fallback_rerank(passages, top_n)
 
 
