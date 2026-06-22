@@ -51,7 +51,7 @@ async def fast_naive_pipeline(state: AgentState) -> dict:
     logger.info("Executing Fast Naive Pipeline...")
     
     # Fast retrieval without query expansion
-    search_results = await multi_query_hybrid_search([req.question], req.search_mode, 5, 5)
+    search_results = await multi_query_hybrid_search([req.question], req.question, req.search_mode, 5, 5)
     chunk_ids = [cid for cid, _ in search_results[:RERANK_TOP_N]]
     chunks = await get_chunks(chunk_ids)
     
@@ -75,12 +75,12 @@ async def deep_hybrid_pipeline(state: AgentState) -> dict:
     logger.info("Executing Deep Hybrid Pipeline...")
     
     # 1. Expand query
-    expanded = await expand_query(req.question, req.search_mode)
+    expanded = await expand_query(req.question)
     queries_to_use = [req.question] + expanded
     
     # 2. Parallel retrieval
     search_results = await multi_query_hybrid_search(
-        queries_to_use, req.search_mode
+        queries_to_use, req.question, req.search_mode
     )
     
     # 3. Fetch chunks
