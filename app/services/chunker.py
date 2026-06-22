@@ -42,7 +42,7 @@ LEGAL_PATTERNS = {
 
 # Patterns for splitting at article/section boundaries
 SPLIT_PATTERN = re.compile(
-    r'(?=(?:^|\n)\s*(?:Article|Art\.?|Section|Sec\.?)\s+\d+)',
+    r'(?=(?:^|\n)\s*(?:Article|Art\.?|Section|Sec\.?|S\.?)\s+\d+)',
     re.IGNORECASE | re.MULTILINE
 )
 

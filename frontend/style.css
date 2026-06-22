@@ -8,19 +8,19 @@
 }
 
 :root {
-    /* Dark Legal Theme */
-    --bg-primary: #06090f;
-    --bg-secondary: #0c1220;
-    --bg-tertiary: #121a2e;
-    --bg-card: rgba(18, 26, 46, 0.7);
-    --bg-glass: rgba(18, 26, 46, 0.5);
+    /* Dark Theme with Biscuit Accents */
+    --bg-primary: #000000;
+    --bg-secondary: rgba(20, 15, 10, 0.4);
+    --bg-tertiary: rgba(30, 20, 15, 0.6);
+    --bg-card: rgba(10, 5, 0, 0.7);
+    --bg-glass: rgba(15, 8, 0, 0.5);
     
     /* Accent Colors */
-    --gold: #c9a84c;
-    --gold-light: #e2c878;
-    --gold-dim: rgba(201, 168, 76, 0.15);
-    --blue: #4a7cf7;
-    --blue-dim: rgba(74, 124, 247, 0.15);
+    --gold: #f4a261; /* Biscuit / Orange Primary */
+    --gold-light: #e76f51; /* Deeper Orange */
+    --gold-dim: rgba(244, 162, 97, 0.15);
+    --blue: #f4a261; /* Repurposed to Biscuit for unified look */
+    --blue-dim: rgba(244, 162, 97, 0.15);
     --green: #34d399;
     --green-dim: rgba(52, 211, 153, 0.12);
     --yellow: #fbbf24;
@@ -29,18 +29,18 @@
     --red-dim: rgba(248, 113, 113, 0.12);
     
     /* Text */
-    --text-primary: #e8eaf0;
-    --text-secondary: #8b92a8;
-    --text-muted: #5a6178;
+    --text-primary: #f8f0e6; /* Warmer off-white */
+    --text-secondary: #a89f91; /* Warmer grey */
+    --text-muted: #6b635a;
     --text-bright: #ffffff;
     
     /* Borders */
-    --border-color: rgba(139, 146, 168, 0.12);
-    --border-glow: rgba(201, 168, 76, 0.3);
+    --border-color: rgba(244, 162, 97, 0.12);
+    --border-glow: rgba(244, 162, 97, 0.3);
     
     /* Typography */
-    --font-body: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-    --font-display: 'Outfit', 'Inter', sans-serif;
+    --font-body: 'Coquito', 'Cormorant Garamond', serif;
+    --font-display: 'Coquito', 'Cormorant Garamond', serif;
     
     /* Sizes */
     --header-height: 64px;
@@ -64,6 +64,7 @@ body {
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    background: radial-gradient(circle at 50% 0%, rgba(50, 25, 5, 0.8) 0%, #000000 70%);
 }
 
 /* ==================== HEADER ==================== */

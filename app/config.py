@@ -41,9 +41,9 @@ RERANK_TOP_N = 5    # Final top-N after reranking
 CONTEXT_TOP_N = 5   # Chunks sent to LLM
 
 # ==================== CHUNKING CONFIG ====================
-MAX_CHUNK_SIZE = 1000       # Max chars per chunk
-SUB_CHUNK_SIZE = 800        # Fallback chunk size
-CHUNK_OVERLAP = 100         # Overlap for fallback splitting
+MAX_CHUNK_SIZE = 1600       # ~400 tokens (approx 4 chars per token)
+SUB_CHUNK_SIZE = 1600       # Fallback chunk size
+CHUNK_OVERLAP = 200         # ~50 tokens overlap
 MIN_CHUNK_SIZE = 50         # Discard tiny chunks
 
 # ==================== CONFIDENCE THRESHOLDS ====================
