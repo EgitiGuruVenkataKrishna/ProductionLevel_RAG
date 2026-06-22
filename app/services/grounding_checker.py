@@ -1,6 +1,10 @@
 """
 Answer Grounding Check & Real Confidence Scoring.
 
+# DEBT: Legacy — This module's primary function (check_grounding) is superseded
+# by the merged generation+grounding in generator.py (generate_and_verify_legal_answer).
+# Kept for backward compatibility and as a fallback for the agentic pipeline.
+
 Verifies that every claim in the LLM's answer is actually
 supported by the retrieved context. Computes real metrics:
 - Faithfulness: % of claims grounded in context

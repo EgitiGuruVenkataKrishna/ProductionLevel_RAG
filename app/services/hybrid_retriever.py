@@ -5,6 +5,7 @@ Merges results from BM25 (keyword) and FAISS (semantic) search.
 """
 import logging
 import json
+import asyncio
 import numpy as np
 import httpx
 from pathlib import Path
@@ -12,20 +13,41 @@ from typing import Optional
 
 from app.config import (
     SEMANTIC_TOP_K, BM25_TOP_K, RRF_K, RERANK_TOP_N,
-    HF_EMBEDDING_URL, HF_API_TOKEN, CHUNKS_METADATA_PATH
+    HF_EMBEDDING_URL, HF_API_TOKEN, CHUNKS_METADATA_PATH,
+    USE_LOCAL_MODELS, USE_SQLITE_METADATA
 )
 from app.services.bm25_index import bm25_index
 from app.services.vector_index import vector_index
 
+# Import metadata store for SQLite chunks (Priority 4)
+if USE_SQLITE_METADATA:
+    from app.db.metadata_store import metadata_store
+
 logger = logging.getLogger(__name__)
+
+# Initialize local embedding model if configured
+_local_embedding_model = None
+if USE_LOCAL_MODELS:
+    try:
+        from fastembed import TextEmbedding
+        logger.info("Initializing FastEmbed TextEmbedding for local inference...")
+        _local_embedding_model = TextEmbedding(model_name="sentence-transformers/all-MiniLM-L6-v2")
+    except ImportError:
+        logger.error("fastembed not installed. Falling back to HF Inference API. Run `pip install fastembed`.")
+        USE_LOCAL_MODELS = False
 
 # ==================== CHUNK METADATA STORE ====================
 _chunks_metadata: list[dict] = []
 
 
 def load_chunks_metadata(path: str = None):
-    """Load chunk texts and metadata from JSON."""
+    """Load chunk texts and metadata from JSON (if SQLite not used)."""
     global _chunks_metadata
+    
+    if USE_SQLITE_METADATA:
+        logger.info("USE_SQLITE_METADATA is true. Skipping JSON load in memory.")
+        return
+        
     meta_path = Path(path) if path else CHUNKS_METADATA_PATH
     
     if not meta_path.exists():
@@ -39,24 +61,53 @@ def load_chunks_metadata(path: str = None):
 
 
 def get_chunks_metadata() -> list[dict]:
-    """Get the loaded chunks metadata."""
+    """Get the loaded chunks metadata (in-memory only)."""
     return _chunks_metadata
 
 
 def get_chunk_by_id(chunk_id: int) -> Optional[dict]:
-    """Get a single chunk by its ID."""
+    """Get a single chunk by its ID (in-memory only). DEPRECATED."""
     if 0 <= chunk_id < len(_chunks_metadata):
         return _chunks_metadata[chunk_id]
     return None
 
 
+async def get_chunks(chunk_ids: list[int]) -> list[dict]:
+    """
+    Fetch a batch of chunks either from SQLite or in-memory JSON.
+    """
+    if USE_SQLITE_METADATA:
+        return await metadata_store.get_chunks_batch(chunk_ids)
+    
+    # In-memory fallback
+    chunks = []
+    for cid in chunk_ids:
+        chunk = get_chunk_by_id(cid)
+        if chunk:
+            # Inject id since SQLite dicts will have it
+            chunk_copy = chunk.copy()
+            chunk_copy["id"] = cid
+            chunks.append(chunk_copy)
+    return chunks
+
+
 # ==================== QUERY EMBEDDING ====================
 async def embed_query(query: str) -> Optional[np.ndarray]:
     """
-    Get query embedding via HuggingFace Inference API.
+    Get query embedding via FastEmbed (local) or HuggingFace API (remote).
     
-    Falls back to None if API is unavailable.
+    Falls back to None if unavailable.
     """
+    if USE_LOCAL_MODELS and _local_embedding_model:
+        try:
+            # FastEmbed embed() returns a generator of arrays
+            embedding_gen = _local_embedding_model.embed([query])
+            embedding = next(embedding_gen).astype(np.float32)
+            return embedding
+        except Exception as e:
+            logger.error(f"Local FastEmbed call failed: {e}")
+            return None
+
     headers = {}
     if HF_API_TOKEN:
         headers["Authorization"] = f"Bearer {HF_API_TOKEN}"
@@ -177,10 +228,13 @@ async def multi_query_hybrid_search(
     bm25_top_k: int = BM25_TOP_K
 ) -> list[tuple[int, float]]:
     """
-    Run hybrid search across multiple expanded queries and merge results.
+    Run hybrid search across multiple expanded queries CONCURRENTLY and merge results.
     
-    Each query's results contribute additively to the final score,
-    so documents appearing in multiple query results rank higher.
+    All queries are dispatched in parallel via asyncio.gather, then results
+    are merged with additive scoring so documents appearing in multiple
+    query results rank higher.
+    
+    Latency: O(1 × single_query_latency) instead of O(N × single_query_latency).
     
     Args:
         queries: List of query strings (original + expansions)
@@ -194,10 +248,20 @@ async def multi_query_hybrid_search(
     if not queries:
         return []
     
+    # Dispatch all queries concurrently
+    tasks = [
+        hybrid_search(query, mode, semantic_top_k, bm25_top_k)
+        for query in queries
+    ]
+    all_results = await asyncio.gather(*tasks, return_exceptions=True)
+    
     accumulated_scores = {}
     
-    for i, query in enumerate(queries):
-        results = await hybrid_search(query, mode, semantic_top_k, bm25_top_k)
+    for i, results in enumerate(all_results):
+        # If a single query failed, log and skip it rather than crashing
+        if isinstance(results, Exception):
+            logger.error(f"Parallel query {i} failed: {results}")
+            continue
         
         # Weight: original query gets full weight, expansions get 0.7x
         weight = 1.0 if i == 0 else 0.7
@@ -211,9 +275,27 @@ async def multi_query_hybrid_search(
     merged = sorted(accumulated_scores.items(), key=lambda x: x[1], reverse=True)
     
     logger.info(
-        f"Multi-query search: {len(queries)} queries → "
+        f"Multi-query search: {len(queries)} queries (parallel) → "
         f"{len(merged)} unique candidates"
     )
     
     return merged
+
+
+def multi_query_hybrid_search_sync(
+    queries: list[str],
+    mode: str = "hybrid",
+    semantic_top_k: int = SEMANTIC_TOP_K,
+    bm25_top_k: int = BM25_TOP_K
+) -> list[tuple[int, float]]:
+    """
+    Synchronous wrapper for multi_query_hybrid_search.
+    
+    For backward compatibility with sync callers.
+    Do NOT call from within an already-running event loop — use the async
+    variant directly instead.
+    """
+    return asyncio.run(
+        multi_query_hybrid_search(queries, mode, semantic_top_k, bm25_top_k)
+    )
 

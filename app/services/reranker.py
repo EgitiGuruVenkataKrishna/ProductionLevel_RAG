@@ -8,9 +8,21 @@ import logging
 import httpx
 from typing import Optional
 
-from app.config import HF_RERANKER_URL, HF_API_TOKEN, RERANK_TOP_N
+from app.config import HF_RERANKER_URL, HF_API_TOKEN, RERANK_TOP_N, USE_LOCAL_MODELS
 
 logger = logging.getLogger(__name__)
+
+# Initialize local cross-encoder model if configured
+_local_reranker_model = None
+if USE_LOCAL_MODELS:
+    try:
+        from fastembed import TextCrossEncoder
+        logger.info("Initializing FastEmbed TextCrossEncoder for local reranking...")
+        # Using a standard lightweight cross-encoder model for FastEmbed
+        _local_reranker_model = TextCrossEncoder(model_name="BAAI/bge-reranker-base")
+    except ImportError:
+        logger.error("fastembed not installed. Falling back to HF Inference API.")
+        USE_LOCAL_MODELS = False
 
 
 async def rerank_passages(
@@ -31,8 +43,29 @@ async def rerank_passages(
     """
     if not passages:
         return []
+        
+    if USE_LOCAL_MODELS and _local_reranker_model:
+        try:
+            # FastEmbed TextCrossEncoder expects pairs of (query, passage)
+            # It returns a generator yielding arrays of scores
+            pairs = [(query, p["text"][:512]) for p in passages]
+            scores_gen = _local_reranker_model.rerank(pairs)
+            scores = list(scores_gen)
+            
+            # Attach scores to passages
+            for i, passage in enumerate(passages):
+                passage["rerank_score"] = float(scores[i])
+                
+            # Sort by rerank score descending
+            reranked = sorted(passages, key=lambda x: x.get("rerank_score", 0.0), reverse=True)
+            logger.info(f"Local reranked {len(passages)} → top {top_n} | "
+                      f"Best score: {reranked[0].get('rerank_score', 0):.4f}")
+            return reranked[:top_n]
+        except Exception as e:
+            logger.error(f"Local FastEmbed reranker failed: {e}")
+            return _fallback_rerank(passages, top_n)
     
-    # Prepare pairs for cross-encoder (query, passage)
+    # Prepare pairs for HF cross-encoder (query, passage)
     inputs = {
         "inputs": [[query, p["text"][:512]] for p in passages]
     }

@@ -21,6 +21,11 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 HF_API_TOKEN = os.getenv("HF_API_TOKEN", "")
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*")  # Comma-separated or *
 
+# ==================== FEATURE FLAGS ====================
+USE_LOCAL_MODELS = os.getenv("USE_LOCAL_MODELS", "false").lower() == "true"
+USE_SQLITE_METADATA = os.getenv("USE_SQLITE_METADATA", "false").lower() == "true"
+USE_AGENTIC_PIPELINE = os.getenv("USE_AGENTIC_PIPELINE", "false").lower() == "true"
+
 # ==================== MODEL CONFIG ====================
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 EMBEDDING_DIMENSIONS = 384

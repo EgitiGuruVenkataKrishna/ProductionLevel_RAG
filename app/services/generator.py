@@ -5,6 +5,8 @@ Uses Groq API for fast inference with a strict legal persona.
 """
 import logging
 import os
+import json
+import re
 import asyncio
 from groq import Groq
 
@@ -133,3 +135,227 @@ async def generate_legal_answer(
     except Exception as e:
         logger.error(f"LLM generation error: {e}")
         raise RuntimeError(f"Failed to generate answer: {e}")
+
+
+# ==================== MERGED GENERATION + GROUNDING ====================
+
+MERGED_LEGAL_SYSTEM_PROMPT = """You are a Senior Legal Assistant specializing in Indian Law.
+Your goal is to answer legal questions using the strictly provided context, AND simultaneously
+verify the grounding of your own answer.
+
+CRITICAL INSTRUCTIONS:
+1. Base your answer EXCLUSIVELY on the provided legal context.
+2. If the user's input is a conversational greeting (like 'hlo', 'hi', 'hello') or fundamentally NOT a legal question, respond with this exact JSON:
+   {{"answer": "GREETING_OR_NON_LEGAL_QUERY", "citations": [], "faithfulness_score": 1.0, "ungrounded_claims": []}}
+3. If it IS a legal question, structure your answer using the IRAC framework but keep it MODERATE LENGTH and CONCISE.
+4. If the context does not contain the answer, say "I cannot determine this from the available excerpts."
+5. NEVER fabricate or hallucinate legal provisions.
+6. Use formal legal language.
+
+CITATION FORMAT (use exactly):
+- IPC: [Section 302, Indian Penal Code, 1860]
+
+SELF-VERIFICATION:
+After generating your answer, rate your own faithfulness:
+- faithfulness_score: What fraction of your claims are directly supported by the context? (0.0–1.0)
+- List any claims you made that are NOT directly stated in the context.
+
+OUTPUT FORMAT — You MUST respond with ONLY a valid JSON object, no other text:
+{{
+  "answer": "<your legal answer using IRAC>",
+  "citations": ["<Section/Article cited>", ...],
+  "faithfulness_score": <0.0 to 1.0>,
+  "ungrounded_claims": ["<any claim not in context>", ...]
+}}
+
+CONTEXT:
+{context}
+
+QUESTION: {question}"""
+
+MERGED_STRATEGY_SYSTEM_PROMPT = """You are an elite Junior Lawyer AI specializing in Indian Legal Strategy and Adversarial Analysis.
+Your goal is to critically evaluate the user's case facts against the provided context, AND simultaneously
+verify the grounding of your analysis.
+
+CRITICAL INSTRUCTIONS:
+1. Adopt an analytical, adversarial ("Devil's Advocate") perspective.
+2. Rely strictly on the user's provided [FACTS] and the retrieved legal context.
+3. Structure your response for legal strategy:
+   - FACT SUMMARY, APPLICABLE LAW, THEORY EVALUATION, BAD FACTS
+4. Never hallucinate legal provisions or case outcomes.
+
+SELF-VERIFICATION:
+After generating your analysis, rate your own faithfulness to the provided context.
+
+OUTPUT FORMAT — You MUST respond with ONLY a valid JSON object, no other text:
+{{
+  "answer": "<your strategy analysis>",
+  "citations": ["<Section/Article cited>", ...],
+  "faithfulness_score": <0.0 to 1.0>,
+  "ungrounded_claims": ["<any claim not in context>", ...]
+}}
+
+CONTEXT:
+{context}
+
+USER CASE SCENARIO: {question}"""
+
+
+class MergedGenerationResult:
+    """Result from the merged generation + grounding LLM call."""
+    
+    def __init__(
+        self,
+        answer: str = "",
+        citations: list[str] = None,
+        faithfulness_score: float = 0.5,
+        ungrounded_claims: list[str] = None,
+        is_low_grounding: bool = False
+    ):
+        self.answer = answer
+        self.citations = citations or []
+        self.faithfulness_score = faithfulness_score
+        self.ungrounded_claims = ungrounded_claims or []
+        self.is_low_grounding = is_low_grounding
+
+
+async def generate_and_verify_legal_answer(
+    question: str,
+    passages: list[dict],
+    is_strategy: bool = False
+) -> MergedGenerationResult:
+    """
+    Generate a legal answer AND verify grounding in a SINGLE LLM call.
+    
+    Replaces the old two-call pattern (generate_legal_answer + check_grounding)
+    with a single structured-output call. Halves LLM API cost and latency.
+    
+    Args:
+        question: User's legal question
+        passages: Reranked passages with text + metadata
+        is_strategy: True to use the strategy/adversarial prompt
+        
+    Returns:
+        MergedGenerationResult with answer, citations, faithfulness_score,
+        ungrounded_claims, and is_low_grounding flag.
+    """
+    api_key = GROQ_API_KEY or os.getenv("GROQ_API_KEY", "")
+    
+    if not api_key:
+        raise ValueError(
+            "GROQ_API_KEY not configured. "
+            "Add it to your .env file or set it as an environment variable."
+        )
+    
+    # Build context from passages
+    context = build_context(passages)
+    
+    # Select and format the merged prompt
+    active_prompt = MERGED_STRATEGY_SYSTEM_PROMPT if is_strategy else MERGED_LEGAL_SYSTEM_PROMPT
+    prompt = active_prompt.format(
+        context=context,
+        question=question
+    )
+    
+    try:
+        client = Groq(api_key=api_key)
+        
+        def _call_groq():
+            return client.chat.completions.create(
+                model=LLM_MODEL,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are a Senior Legal Assistant specializing in Indian Law. "
+                            "You MUST respond with ONLY a valid JSON object. No markdown, no code fences, no extra text. "
+                            "Base your entire application EXCLUSIVELY on the provided context."
+                        )
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                temperature=LLM_TEMPERATURE,
+                max_tokens=1500,  # Slightly higher to accommodate JSON wrapper
+                timeout=20.0
+            )
+            
+        chat_completion = await asyncio.to_thread(_call_groq)
+        
+        raw = chat_completion.choices[0].message.content.strip()
+        logger.info(f"Merged LLM response ({len(raw)} chars)")
+        
+        # Parse the JSON response
+        result = _parse_merged_response(raw)
+        return result
+    
+    except Exception as e:
+        logger.error(f"Merged generation error: {e}")
+        raise RuntimeError(f"Failed to generate and verify answer: {e}")
+
+
+def _parse_merged_response(raw: str) -> MergedGenerationResult:
+    """
+    Parse the merged JSON response from the LLM.
+    
+    Handles multiple edge cases:
+    - Clean JSON
+    - JSON wrapped in markdown code fences
+    - Completely invalid JSON (fallback: treat raw as plain answer)
+    """
+    result = MergedGenerationResult()
+    
+    # Strip markdown code fences if present
+    cleaned = raw.strip()
+    if cleaned.startswith("```"):
+        # Remove ```json or ``` prefix and trailing ```
+        lines = cleaned.split("\n")
+        if lines[0].strip().startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        cleaned = "\n".join(lines).strip()
+    
+    try:
+        data = json.loads(cleaned)
+        
+        result.answer = data.get("answer", "")
+        result.citations = data.get("citations", [])
+        result.faithfulness_score = float(data.get("faithfulness_score", 0.5))
+        result.ungrounded_claims = data.get("ungrounded_claims", [])
+        
+        # Clamp faithfulness to [0, 1]
+        result.faithfulness_score = max(0.0, min(1.0, result.faithfulness_score))
+        
+        # Flag low grounding
+        if result.faithfulness_score < 0.7:
+            result.is_low_grounding = True
+            logger.warning(
+                f"LOW_GROUNDING: faithfulness={result.faithfulness_score:.2f}, "
+                f"ungrounded_claims={result.ungrounded_claims}"
+            )
+        
+        # Log ungrounded claims as warnings
+        for claim in result.ungrounded_claims:
+            if claim and claim.lower() not in ("none", "n/a", ""):
+                logger.warning(f"Ungrounded claim: {claim}")
+        
+        logger.info(
+            f"Merged parse OK: faithfulness={result.faithfulness_score:.2f}, "
+            f"citations={len(result.citations)}, "
+            f"ungrounded={len(result.ungrounded_claims)}, "
+            f"low_grounding={result.is_low_grounding}"
+        )
+        
+    except (json.JSONDecodeError, ValueError, TypeError) as e:
+        # Fallback: treat the entire raw response as the answer
+        logger.warning(f"Failed to parse merged JSON response ({e}). Using raw text as answer.")
+        result.answer = raw
+        result.faithfulness_score = 0.5  # Unknown — conservative default
+        result.is_low_grounding = True
+        result.ungrounded_claims = ["JSON parsing failed — grounding could not be verified"]
+    
+    return result
+

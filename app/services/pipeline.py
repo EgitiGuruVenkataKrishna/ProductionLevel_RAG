@@ -1,22 +1,34 @@
 """
-Shared 8-step pipeline service for Legal RAG.
-Used by both main.py and api/ask.py
+Shared pipeline service for Legal RAG.
+Used by both main.py and api/ask.py.
+
+Merged generation+grounding: Steps 6+7 are now a single LLM call.
 """
 import logging
 from fastapi import HTTPException
-from app.config import RERANK_TOP_N, CONTEXT_TOP_N
+from app.config import RERANK_TOP_N, CONTEXT_TOP_N, USE_AGENTIC_PIPELINE
 from app.models import QueryRequest, QueryResponse, CitationSource, GroundingMetrics
 from app.services.query_expander import expand_query
-from app.services.hybrid_retriever import multi_query_hybrid_search, get_chunk_by_id
+from app.services.hybrid_retriever import multi_query_hybrid_search, get_chunks
 from app.services.reranker import rerank_passages
 from app.services.context_filter import filter_and_sanitize
-from app.services.generator import generate_legal_answer, get_confidence_level, build_context
-from app.services.grounding_checker import check_grounding
+from app.services.generator import (
+    generate_legal_answer, get_confidence_level, build_context,
+    generate_and_verify_legal_answer  # Merged generation + grounding
+)
+from app.services.grounding_checker import check_grounding  # DEBT: Legacy — kept for backward compat
 
 logger = logging.getLogger(__name__)
 
 async def run_ask_pipeline(request: QueryRequest) -> QueryResponse:
-    """Run the complete 8-step RAG pipeline."""
+    """Run the complete RAG pipeline (Legacy or Agentic based on config)."""
+    
+    # ──── Feature Flag Routing ────
+    if USE_AGENTIC_PIPELINE:
+        from app.services.agentic_pipeline import run_agentic_pipeline
+        is_strategy = "[FACTS]:" in request.question.upper()
+        return await run_agentic_pipeline(request, is_strategy)
+    
     logger.info(f"═══ Query: '{request.question}' | Mode: {request.search_mode} ═══")
     
     # ──── Step 1: Query Intent & Expansion ────
@@ -58,21 +70,37 @@ async def run_ask_pipeline(request: QueryRequest) -> QueryResponse:
     
     # ──── Step 4: Gather Passage Details + Rerank ────
     candidate_passages = []
-    for chunk_id, fusion_score in search_results[:RERANK_TOP_N * 4]:
-        chunk = get_chunk_by_id(chunk_id)
-        if chunk:
-            candidate_passages.append({
-                "chunk_id": chunk_id,
-                "text": chunk.get("text", ""),
-                "article_number": chunk.get("article_number"),
-                "section": chunk.get("section"),
-                "act_name": chunk.get("act_name"),
-                "part": chunk.get("part"),
-                "source_file": chunk.get("source_file", ""),
-                "page": chunk.get("page"),
-                "fusion_score": fusion_score,
-                "similarity_score": fusion_score,
-            })
+    
+    # Extract just the top IDs
+    top_search_results = search_results[:RERANK_TOP_N * 4]
+    chunk_ids = [chunk_id for chunk_id, _ in top_search_results]
+    
+    # Fetch all chunks in a batch (async, potentially from SQLite)
+    chunks = await get_chunks(chunk_ids)
+    
+    # Build a lookup to map fusion_scores back to chunks
+    fusion_score_map = {chunk_id: score for chunk_id, score in top_search_results}
+    
+    for chunk in chunks:
+        chunk_id = chunk.get("id")
+        # In-memory fallback might not inject "id" if not careful, fallback to lookup
+        if chunk_id is None:
+            continue
+            
+        fusion_score = fusion_score_map.get(chunk_id, 0.0)
+        
+        candidate_passages.append({
+            "chunk_id": chunk_id,
+            "text": chunk.get("text", ""),
+            "article_number": chunk.get("article_number"),
+            "section": chunk.get("section"),
+            "act_name": chunk.get("act_name"),
+            "part": chunk.get("part"),
+            "source_file": chunk.get("source_file", ""),
+            "page": chunk.get("page"),
+            "fusion_score": fusion_score,
+            "similarity_score": fusion_score,
+        })
     
     if not candidate_passages:
         return QueryResponse(
@@ -100,13 +128,15 @@ async def run_ask_pipeline(request: QueryRequest) -> QueryResponse:
     filtered = filter_and_sanitize(reranked)
     logger.info(f"Step 5 — Filtered to {len(filtered)} clean passages")
     
-    # ──── Step 6: LLM Generation ────
-    answer = await generate_legal_answer(
+    # ──── Step 6+7 (Merged): LLM Generation + Grounding in ONE call ────
+    merged_result = await generate_and_verify_legal_answer(
         question=request.question,
         passages=filtered,
         is_strategy=is_strategy
     )
-    logger.info(f"Step 6 — Answer generated ({len(answer)} chars)")
+    answer = merged_result.answer
+    logger.info(f"Step 6+7 — Answer generated + grounded ({len(answer)} chars, "
+                f"faith={merged_result.faithfulness_score:.2f})")
     
     # ──── Step 6.5: Intercept Greetings & Non-Legal Queries ────
     if "GREETING_OR_NON_LEGAL_QUERY" in answer:
@@ -124,32 +154,57 @@ async def run_ask_pipeline(request: QueryRequest) -> QueryResponse:
             degraded_mode=False
         )
 
-    # ──── Step 7: Answer Grounding Check ────
-    context_text = build_context(filtered)
-    grounding_result = await check_grounding(
-        question=request.question,
-        answer=answer,
-        context=context_text
+    # ──── Map merged result to grounding metrics ────
+    # Faithfulness is the primary metric (60% weight). Relevance and coverage
+    # are estimated conservatively since the merged call focuses on faithfulness.
+    faithfulness = merged_result.faithfulness_score
+    
+    # Apply strict penalty for ungrounded claims (matches legacy behavior)
+    clean_claims = [
+        c for c in merged_result.ungrounded_claims
+        if c and c.lower() not in ("none", "n/a", "")
+    ]
+    if clean_claims:
+        penalty = len(clean_claims) * 0.15
+        faithfulness = max(0.0, faithfulness - penalty)
+    
+    # Estimate relevance from faithfulness (highly correlated for legal Q&A)
+    relevance = min(1.0, faithfulness + 0.1) if faithfulness >= 0.5 else faithfulness
+    coverage = 0.5  # Conservative default for merged call
+    
+    # Weighted overall score (matches legacy: 60% faith + 30% rel + 10% cov)
+    overall_score = faithfulness * 0.60 + relevance * 0.30 + coverage * 0.10
+    
+    # If faithfulness is critically low, tank the score (matches legacy behavior)
+    if faithfulness < 0.3:
+        overall_score = min(overall_score, 0.15)
+    
+    is_grounded = (
+        faithfulness >= 0.7 and
+        overall_score >= 0.5 and
+        len(clean_claims) == 0
     )
-    logger.info(f"Step 7 — Grounding: faith={grounding_result.faithfulness:.2f} "
-                f"grounded={grounding_result.is_grounded}")
+    
+    logger.info(
+        f"Grounding: faith={faithfulness:.2f} rel={relevance:.2f} "
+        f"cov={coverage:.2f} overall={overall_score:.2f} grounded={is_grounded}"
+    )
     
     # Add warning if answer is not well-grounded
     grounding_warning = None
-    if not grounding_result.is_grounded:
+    if not is_grounded:
         grounding_warning = (
             "⚠️ Some claims in this answer may not be fully supported by the "
             "retrieved documents. Please verify with authoritative legal sources."
         )
-    elif grounding_result.ungrounded_claims:
+    elif clean_claims:
         grounding_warning = (
             f"⚠️ Potentially ungrounded claims detected: "
-            f"{'; '.join(grounding_result.ungrounded_claims[:3])}"
+            f"{'; '.join(clean_claims[:3])}"
         )
     
     # ──── Step 8: Real Confidence Scoring ────
-    # Use grounding overall_score as the primary confidence metric
-    confidence_score = grounding_result.overall_score
+    confidence_score = overall_score
     confidence_level, base_warning = get_confidence_level(confidence_score)
     
     # Combine warnings
@@ -184,12 +239,12 @@ async def run_ask_pipeline(request: QueryRequest) -> QueryResponse:
     ]
     
     grounding_metrics = GroundingMetrics(
-        faithfulness=grounding_result.faithfulness,
-        relevance=grounding_result.relevance,
-        coverage=grounding_result.coverage,
-        overall_score=grounding_result.overall_score,
-        is_grounded=grounding_result.is_grounded,
-        ungrounded_claims=grounding_result.ungrounded_claims
+        faithfulness=faithfulness,
+        relevance=relevance,
+        coverage=coverage,
+        overall_score=overall_score,
+        is_grounded=is_grounded,
+        ungrounded_claims=clean_claims
     )
     
     logger.info(f"═══ Pipeline complete | Confidence: {confidence_level} ({confidence_score:.2f}) ═══")

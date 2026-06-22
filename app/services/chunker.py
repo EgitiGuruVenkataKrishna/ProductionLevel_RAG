@@ -5,8 +5,11 @@ Splits Indian legal texts at natural boundaries (Articles, Sections, Parts)
 instead of blind fixed-size windows. Attaches legal metadata to each chunk.
 """
 import re
+import logging
 from typing import Optional
 from app.config import MAX_CHUNK_SIZE, SUB_CHUNK_SIZE, CHUNK_OVERLAP, MIN_CHUNK_SIZE
+
+logger = logging.getLogger(__name__)
 
 
 # ==================== LEGAL PATTERN DEFINITIONS ====================
@@ -130,12 +133,59 @@ def extract_legal_metadata(text: str, source_file: str = "", page: int = None) -
 
 
 def _recursive_split(text: str, chunk_size: int, overlap: int) -> list[str]:
-    """Fallback: split text into overlapping chunks by character count."""
-    chunks = []
-    separators = ["\n\n", "\n", ". ", " "]
-    
+    """Fallback: split text into overlapping chunks, prioritizing sentence boundaries."""
     if len(text) <= chunk_size:
         return [text] if len(text.strip()) >= MIN_CHUNK_SIZE else []
+        
+    try:
+        import nltk
+        try:
+            sentences = nltk.sent_tokenize(text)
+        except LookupError:
+            nltk.download('punkt', quiet=True)
+            sentences = nltk.sent_tokenize(text)
+            
+        logger.warning(f"Using NLTK sentence chunking fallback for text of length {len(text)}")
+        
+        chunks = []
+        current_chunk = []
+        current_len = 0
+        
+        for sentence in sentences:
+            sentence_len = len(sentence)
+            if current_len + sentence_len + 1 > chunk_size and current_chunk:
+                # Join the current chunk
+                joined_chunk = " ".join(current_chunk)
+                chunks.append(joined_chunk)
+                
+                # Setup next chunk with overlap
+                # Estimate words for overlap (roughly 5 chars per word)
+                overlap_words = int(overlap / 5)
+                if overlap_words > 0:
+                    overlap_text = " ".join(joined_chunk.split()[-overlap_words:])
+                    current_chunk = [overlap_text, sentence]
+                    current_len = len(overlap_text) + 1 + sentence_len
+                else:
+                    current_chunk = [sentence]
+                    current_len = sentence_len
+            else:
+                current_chunk.append(sentence)
+                current_len += sentence_len + 1
+                
+        if current_chunk:
+            final_chunk = " ".join(current_chunk)
+            if len(final_chunk.strip()) >= MIN_CHUNK_SIZE:
+                chunks.append(final_chunk.strip())
+                
+        if chunks:
+            return chunks
+
+    except Exception as e:
+        logger.warning(f"NLTK sent_tokenize failed ({e}). Using raw character-based split fallback.")
+
+    # Last resort: raw character-based split (Original fallback)
+    chunks = []
+    separators = ["\n\n", "\n", ". ", " "]
     
     # Try each separator
     for sep in separators:
@@ -156,7 +206,7 @@ def _recursive_split(text: str, chunk_size: int, overlap: int) -> list[str]:
             if chunks:
                 return chunks
     
-    # Last resort: hard split by character, handling words carefully (BUG-015)
+    # Hard split by character, handling words carefully (BUG-015)
     _words = text.split()
     current_chunk = ""
     for word in _words:
