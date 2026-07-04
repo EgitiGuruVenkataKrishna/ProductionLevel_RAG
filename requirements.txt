@@ -3,7 +3,7 @@
 # ==================================================
 
 # Core API
-fastapi==0.109.0
+fastapi>=0.111.0
 pydantic>=2.0
 
 # ASGI Server
@@ -19,11 +19,9 @@ langgraph>=0.0.26
 langchain-core>=0.1.30
 
 # Retrieval / Vector DB
-faiss-cpu>=1.7.4
 bm25s>=0.1.7
 numpy>=1.24.0
 nltk>=3.8.1  # For sentence boundary aware chunking fallback
-fastembed>=0.2.6  # Local embedding & reranking (lightweight alternative to sentence-transformers)
 aiosqlite>=0.20.0  # Async SQLite for chunk metadata
 pinecone>=5.0.0
 cohere>=5.0.0
@@ -49,12 +47,7 @@ PyJWT>=2.8.0
 # Observability
 langfuse>=2.0.0
 
-# Eval & Testing
-pytest>=7.0.0
-datasets>=2.14.0
-ruff>=0.1.0
-
 # ==================================================
 # LOCAL ONLY — For building indices (not deployed)
-#   pip install sentence-transformers langchain-community pypdf
+#   See requirements-dev.txt
 # ==================================================
