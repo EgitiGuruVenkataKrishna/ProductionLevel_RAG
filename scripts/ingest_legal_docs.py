@@ -253,7 +253,7 @@ def main():
         help="FastEmbed batch size (higher = faster, more RAM)"
     )
     parser.add_argument(
-        "--upsert-batch", type=int, default=20,
+        "--upsert-batch", type=int, default=100,
         help="Pinecone upsert batch size"
     )
     parser.add_argument(
@@ -467,8 +467,7 @@ def main():
             "article_number": chunk.get("article_number") or "",
             "category": chunk.get("category") or "General Law",
             "page": chunk.get("page") if chunk.get("page") is not None else 0,
-            # NEW Golden Strategy Metadata:
-            "parent_text": chunk.get("parent_text") or "",
+            # NEW Golden Strategy Metadata for Pinecone Filters:
             "status": chunk.get("status") or "unknown",
             "enactment_year": chunk.get("enactment_year") or 0,
             "doc_type": chunk.get("doc_type") or "statute"
