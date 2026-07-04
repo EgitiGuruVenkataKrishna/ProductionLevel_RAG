@@ -1,4 +1,4 @@
-﻿"""
+"""
 Query Expansion Service.
 
 Generates a dense HyDE paragraph from the user's legal question
@@ -10,6 +10,7 @@ import asyncio
 from groq import Groq
 
 from app.config import GROQ_API_KEY, LLM_MODEL
+from app.services.cache import get_hyde_cache, set_hyde_cache
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,10 @@ async def expand_query(question: str) -> list[str]:
     if not api_key:
         logger.warning("No GROQ_API_KEY - skipping query expansion")
         return [question]
+        
+    cached_hyde = await get_hyde_cache(question)
+    if cached_hyde:
+        return [cached_hyde]
     
     try:
         client = Groq(api_key=api_key)
@@ -56,6 +61,8 @@ async def expand_query(question: str) -> list[str]:
         hyde_paragraph = response.choices[0].message.content.strip()
         
         logger.info(f"Constrained HyDE generated: {hyde_paragraph[:80]}...")
+        
+        await set_hyde_cache(question, hyde_paragraph)
         
         return [hyde_paragraph]
     

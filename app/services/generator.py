@@ -1,4 +1,4 @@
-﻿"""
+"""
 LLM Generator with Legal System Prompt.
 
 Uses Groq API for fast inference with a strict legal persona.
@@ -8,7 +8,9 @@ import os
 import json
 import re
 import asyncio
+import asyncio
 from groq import Groq
+from langfuse import observe
 
 from app.config import (
     LEGAL_SYSTEM_PROMPT, STRATEGY_SYSTEM_PROMPT, GROQ_API_KEY, LLM_MODEL, LLM_TEMPERATURE,
@@ -18,6 +20,7 @@ from app.config import (
 logger = logging.getLogger(__name__)
 
 
+from typing import AsyncGenerator
 def get_confidence_level(score: float) -> tuple[str, str | None]:
     """
     Convert a similarity/rerank score to confidence level and optional warning.
@@ -64,13 +67,56 @@ def build_context(passages: list[dict]) -> str:
         
         header = " | ".join(header_parts) if header_parts else f"Source {i}"
         
+        # Use parent_text if available for full legal context, fallback to chunk text
+        context_text = passage.get("parent_text") or passage["text"]
+        
         context_parts.append(
-            f"[Source {i}: {header}]\n{passage['text']}"
+            f"[Source {i}: {header}]\n{context_text}"
         )
-    
     return "\n\n---\n\n".join(context_parts)
 
 
+@observe(name="detect_query_intent")
+async def detect_query_intent(question: str) -> str:
+    """
+    Fast LLM call to classify intent before hitting the RAG pipeline.
+    Returns: 'greeting', 'system', or 'legal'
+    """
+    api_key = GROQ_API_KEY or os.getenv("GROQ_API_KEY", "")
+    if not api_key:
+        return "legal"  # fallback
+    
+    try:
+        from groq import AsyncGroq
+        client = AsyncGroq(api_key=api_key)
+        
+        prompt = f"""Classify the user's intent into exactly ONE of these three categories:
+1. "greeting": Conversational greetings (hi, hello, how are you).
+2. "system": Questions about who you are, your capabilities, or your creator (who are you, what can you do).
+3. "legal": Any actual legal question, scenario, or topic.
+
+User Input: "{question}"
+
+Output ONLY the category word (greeting, system, or legal) and nothing else."""
+
+        chat_completion = await client.chat.completions.create(
+            model="llama-3.1-8b-instant",  # Extremely fast router model
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.0,
+            max_tokens=10,
+            timeout=5.0
+        )
+        
+        result = chat_completion.choices[0].message.content.strip().lower()
+        if "greeting" in result: return "greeting"
+        if "system" in result: return "system"
+        return "legal"
+    except Exception as e:
+        logger.error(f"Intent detection failed: {e}")
+        return "legal"  # Fallback to full pipeline
+
+
+@observe(name="generate_legal_answer")
 async def generate_legal_answer(
     question: str,
     passages: list[dict],
@@ -147,10 +193,15 @@ CRITICAL INSTRUCTIONS:
 1. Base your answer EXCLUSIVELY on the provided legal context.
 2. If the user's input is a conversational greeting (like 'hlo', 'hi', 'hello') or fundamentally NOT a legal question, respond with this exact JSON:
    {{"answer": "GREETING_OR_NON_LEGAL_QUERY", "citations": [], "faithfulness_score": 1.0, "ungrounded_claims": []}}
-3. If it IS a legal question, structure your answer using the IRAC framework but keep it MODERATE LENGTH and CONCISE.
-4. If the context does not contain the answer, say "I cannot determine this from the available excerpts."
-5. NEVER fabricate or hallucinate legal provisions.
-6. Use formal legal language.
+3. **PRIORITIZE NEW LAWS (BNS/BNSS/BSA):** India transitioned to new criminal laws on July 1, 2024. ALWAYS apply and cite the Bharatiya Nyaya Sanhita (BNS), Bharatiya Nagarik Suraksha Sanhita (BNSS), and Bharatiya Sakshya Adhiniyam (BSA) over the repealed IPC, CrPC, or IEA. If the scenario occurs after July 1, 2024, you are STRICTLY FORBIDDEN from using the old Evidence Act, IPC, CrPC, or historical IT Act clauses for procedural validation. If the relevant BSA/BNS chunk is missing, state: "The required new active law is not present in the retrieved context."
+4. If it IS a legal question, structure your answer using the IRAC framework but keep it of MODERATE LENGTH. However, DO NOT omit crucial parts of a section just to be concise:
+   - **ISSUE:** Briefly state the legal question.
+   - **RULE:** Extract exact laws, Sections, their FULL rigid conditions, AND any punishments, penalties, or exceptions mentioned.
+   - **APPLICATION:** Briefly apply the rules to the actors. Ensure you mention requirements like 'communication to a third party' or 'cognizance by Sessions Court' if the law demands it.
+   - **CONCLUSION:** A definitive legal outcome based purely on the text. Include the potential punishment if applicable.
+5. If the context does not contain the answer, say "I cannot determine this from the available excerpts."
+6. NEVER fabricate, guess, or hallucinate legal provisions, procedural links, or punishments. If a specific procedural section (like cognizance for public servants) is not in the context, do not guess it.
+7. Use formal legal language.
 
 CITATION FORMAT (use exactly):
 - You MUST explicitly cite the 'Act' and 'Section' from the provided metadata for every legal claim. 
@@ -166,6 +217,7 @@ OUTPUT FORMAT - You MUST respond with ONLY a valid JSON object, no other text:
 {{
   "answer": "<your legal answer using IRAC>",
   "citations": ["<Section/Article cited>", ...],
+  "faithfulness_reasoning": "<brief explanation of how well your answer matches the context>",
   "faithfulness_score": <0.0 to 1.0>,
   "ungrounded_claims": ["<any claim not in context>", ...]
 }}
@@ -193,6 +245,7 @@ OUTPUT FORMAT - You MUST respond with ONLY a valid JSON object, no other text:
 {{
   "answer": "<your strategy analysis>",
   "citations": ["<Section/Article cited>", ...],
+  "faithfulness_reasoning": "<brief explanation of how well your answer matches the context>",
   "faithfulness_score": <0.0 to 1.0>,
   "ungrounded_claims": ["<any claim not in context>", ...]
 }}
@@ -221,6 +274,7 @@ class MergedGenerationResult:
         self.is_low_grounding = is_low_grounding
 
 
+@observe(name="generate_and_verify_legal_answer")
 async def generate_and_verify_legal_answer(
     question: str,
     passages: list[dict],
@@ -296,6 +350,97 @@ async def generate_and_verify_legal_answer(
     except Exception as e:
         logger.error(f"Merged generation error: {e}")
         raise RuntimeError(f"Failed to generate and verify answer: {e}")
+
+
+@observe(name="generate_and_verify_legal_answer_stream")
+async def generate_and_verify_legal_answer_stream(
+    question: str,
+    passages: list[dict],
+    is_strategy: bool = False
+) -> AsyncGenerator[str, None]:
+    """
+    Stream a legal answer AND verify grounding in a SINGLE LLM call.
+    Yields chunks of the raw JSON string as they are generated by the LLM.
+    """
+    api_key = GROQ_API_KEY or os.getenv("GROQ_API_KEY", "")
+    
+    if not api_key:
+        raise ValueError(
+            "GROQ_API_KEY not configured. "
+            "Add it to your .env file or set it as an environment variable."
+        )
+    
+    context = build_context(passages)
+    active_prompt = STRATEGY_SYSTEM_PROMPT if is_strategy else LEGAL_SYSTEM_PROMPT
+    prompt = active_prompt.format(
+        context=context,
+        question=question
+    )
+    
+    try:
+        client = Groq(api_key=api_key)
+        
+        # Async stream using Groq client
+        stream = client.chat.completions.create(
+            model=LLM_MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a Senior Legal Assistant specializing in Indian Law. "
+                        "You MUST respond with ONLY a valid JSON object. No markdown, no code fences, no extra text. "
+                        "Base your entire application EXCLUSIVELY on the provided context."
+                    )
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            temperature=LLM_TEMPERATURE,
+            max_tokens=1500,
+            stream=True
+        )
+        
+        # For the sync groq client, we need to iterate in a thread or use AsyncGroq.
+        # Since we use the sync client everywhere, let's wrap iteration.
+        # However, groq has AsyncGroq available!
+        # Wait, the codebase currently uses `from groq import Groq` and `asyncio.to_thread`.
+        # Streaming synchronously in `to_thread` is tricky to yield from.
+        # Let's import AsyncGroq if we can, or just yield from the sync iterator using a queue or run_in_executor.
+        # Wait, let's import AsyncGroq locally or globally.
+        from groq import AsyncGroq
+        async_client = AsyncGroq(api_key=api_key)
+        
+        async_stream = await async_client.chat.completions.create(
+            model=LLM_MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a Senior Legal Assistant specializing in Indian Law. "
+                        "Respond directly with your legal answer using the IRAC framework. "
+                        "Do not output JSON. Just output the markdown text. "
+                        "Base your entire application EXCLUSIVELY on the provided context."
+                    )
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            temperature=LLM_TEMPERATURE,
+            max_tokens=1500,
+            stream=True
+        )
+        
+        async for chunk in async_stream:
+            if chunk.choices[0].delta.content is not None:
+                yield chunk.choices[0].delta.content
+                
+    except Exception as e:
+        logger.error(f"Merged stream generation error: {e}")
+        yield f"\n\n**Error**: {str(e)}"
 
 
 def _parse_merged_response(raw: str) -> MergedGenerationResult:

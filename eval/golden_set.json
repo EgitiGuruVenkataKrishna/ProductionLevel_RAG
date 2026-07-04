@@ -1,0 +1,17 @@
+[
+  {
+    "question": "What is the punishment for murder under the Indian Penal Code?",
+    "ground_truth": "Under Section 302 of the Indian Penal Code, the punishment for murder is death or imprisonment for life, and shall also be liable to fine.",
+    "context_reference": "Section 302, IPC"
+  },
+  {
+    "question": "Can a person claim the right of private defence if they are the aggressor?",
+    "ground_truth": "No. The right of private defence is not available to the aggressor. The right only arises when a person faces a reasonable apprehension of danger to body or property from another's unlawful act.",
+    "context_reference": "General Principles of Private Defence"
+  },
+  {
+    "question": "What constitutes dacoity?",
+    "ground_truth": "Under Section 391 of the IPC, when five or more persons conjointly commit or attempt to commit a robbery, or where the whole number of persons conjointly committing or attempting to commit a robbery, and persons present and aiding such commission or attempt, amount to five or more, every person so committing, attempting or aiding, is said to commit dacoity.",
+    "context_reference": "Section 391, IPC"
+  }
+]

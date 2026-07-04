@@ -24,6 +24,10 @@ class QueryRequest(BaseModel):
         le=1.0,
         description="Minimum confidence threshold"
     )
+    session_id: Optional[str] = Field(
+        default=None,
+        description="Session ID for chat history memory"
+    )
 
 
 class CitationSource(BaseModel):

@@ -18,7 +18,7 @@ if project_root not in sys.path:
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Depends
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -29,8 +29,13 @@ from app.models import QueryRequest, QueryResponse
 from app.services.bm25_index import bm25_index
 from app.services.vector_index import vector_index
 from app.services.hybrid_retriever import load_chunks_metadata
-from app.services.pipeline import run_ask_pipeline
+from app.services.pipeline import run_ask_pipeline, run_ask_pipeline_stream
 from app.rate_limiter import rate_limit
+from app.middleware.auth import get_current_user_session, JWT_SECRET, JWT_ALGORITHM
+from sse_starlette.sse import EventSourceResponse
+import jwt
+import datetime
+import uuid
 
 app = FastAPI(
     title="Legal RAG Assistant API",
@@ -86,13 +91,29 @@ def _ensure_initialized():
 
 # ==================== ENDPOINTS ====================
 
+@app.get("/api/auth/token")
+async def generate_dev_token():
+    """
+    DEV ONLY: Generate a valid JWT token for testing.
+    In a real app, this would be your login endpoint.
+    """
+    payload = {
+        "sub": f"user_{uuid.uuid4().hex[:8]}",
+        "exp": datetime.datetime.utcnow() + datetime.timedelta(days=7)
+    }
+    token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+    return {"access_token": token, "token_type": "bearer"}
+
 @app.post("/api/ask", response_model=QueryResponse)
 @rate_limit
-async def ask_question(request: Request, query: QueryRequest):
+async def ask_question(request: Request, query: QueryRequest, session_id: str = Depends(get_current_user_session)):
     """
     Ask a legal question — full 8-step pipeline.
     """
     _ensure_initialized()
+    
+    # Override client-provided session_id with the secure one from JWT
+    query.session_id = session_id
     
     try:
         return await run_ask_pipeline(query)
@@ -103,3 +124,24 @@ async def ask_question(request: Request, query: QueryRequest):
             status_code=500, 
             content={"detail": "An internal error occurred while processing your request. Please try again later."}
         )
+
+@app.post("/api/ask/stream")
+@rate_limit
+async def ask_question_stream(request: Request, query: QueryRequest, session_id: str = Depends(get_current_user_session)):
+    """
+    Ask a legal question — streams back response chunks and JSON updates.
+    """
+    _ensure_initialized()
+    
+    # Override client-provided session_id with the secure one from JWT
+    query.session_id = session_id
+    
+    async def event_generator():
+        try:
+            async for event_json in run_ask_pipeline_stream(query):
+                yield {"data": event_json}
+        except Exception as e:
+            logger.error(f"Stream Query error: {e}", exc_info=True)
+            yield {"data": '{"status": "error", "message": "An internal error occurred."}'}
+
+    return EventSourceResponse(event_generator())

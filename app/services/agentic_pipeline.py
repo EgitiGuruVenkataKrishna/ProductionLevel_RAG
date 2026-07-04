@@ -14,8 +14,9 @@ from app.services.query_expander import expand_query
 from app.services.hybrid_retriever import multi_query_hybrid_search, get_chunks
 from app.services.reranker import rerank_passages
 from app.services.context_filter import filter_and_sanitize
+from app.services.context_filter import filter_and_sanitize
 from app.services.generator import generate_and_verify_legal_answer
-from app.config import RERANK_TOP_N
+from app.config import RERANK_TOP_N, AGENT_FALLBACK_THRESHOLD
 
 logger = logging.getLogger(__name__)
 
@@ -113,17 +114,17 @@ def grade_retrieval(state: AgentState) -> dict:
     best_score = max(p.get("rerank_score", p.get("fusion_score", 0.0)) for p in passages)
     logger.info(f"Grader: best passage score = {best_score:.4f}")
     
-    # Arbitrary threshold for demonstration
-    needs_fallback = best_score < 0.2
+    needs_fallback = best_score < AGENT_FALLBACK_THRESHOLD
     return {"web_fallback_needed": needs_fallback}
 
 
 # ==================== NODE: WEB FALLBACK ====================
 def web_fallback(state: AgentState) -> dict:
-    """(Stub) Perform external search if local docs fail."""
-    logger.warning("Web fallback triggered (CRAG) - STUB")
-    # In a real implementation, this would call a web search API
-    return {}
+    """Fallback logic when local documents fail to meet threshold."""
+    logger.warning("Agentic pipeline triggered fallback due to low confidence.")
+    
+    # Empty out the filtered passages to force a deterministic refusal in generation
+    return {"filtered_passages": []}
 
 
 # ==================== NODE: GENERATOR ====================

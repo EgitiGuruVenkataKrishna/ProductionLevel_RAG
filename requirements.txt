@@ -37,6 +37,23 @@ slowapi>=0.1.9
 # Environment
 python-dotenv>=1.0.0
 
+# Redis Caching & Rate Limiting
+redis>=5.0.1
+
+# Streaming
+sse-starlette>=2.0.0
+
+# Auth
+PyJWT>=2.8.0
+
+# Observability
+langfuse>=2.0.0
+
+# Eval & Testing
+pytest>=7.0.0
+datasets>=2.14.0
+ruff>=0.1.0
+
 # ==================================================
 # LOCAL ONLY — For building indices (not deployed)
 #   pip install sentence-transformers langchain-community pypdf

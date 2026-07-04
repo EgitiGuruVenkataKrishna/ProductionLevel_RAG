@@ -189,6 +189,30 @@ def main():
         if f.is_file():
             size_kb = f.stat().st_size / 1024
             logger.info(f"    {f.relative_to(output_dir)} ({size_kb:.1f} KB)")
+            
+    # ---- Step 7: Bump INDEX_VERSION ----
+    logger.info("\n" + "=" * 60)
+    logger.info("STEP 7: Bumping INDEX_VERSION")
+    logger.info("=" * 60)
+    
+    from dotenv import set_key, get_key
+    env_path = BASE_DIR / ".env" if 'BASE_DIR' in locals() else Path(project_root) / ".env"
+    
+    if env_path.exists():
+        current_version_str = get_key(str(env_path), "INDEX_VERSION")
+        if current_version_str and current_version_str.startswith("v"):
+            try:
+                version_num = int(current_version_str[1:])
+                new_version = f"v{version_num + 1}"
+            except ValueError:
+                new_version = "v1"
+        else:
+            new_version = "v1"
+            
+        set_key(str(env_path), "INDEX_VERSION", new_version)
+        logger.info(f"✅ INDEX_VERSION bumped to {new_version} in .env")
+    else:
+        logger.warning(f"⚠️ .env file not found at {env_path}, skipping version bump.")
     
     logger.info(f"\n🚀 Ready! Deploy with: vercel --prod")
 

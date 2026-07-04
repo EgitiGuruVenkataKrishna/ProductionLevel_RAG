@@ -11,6 +11,22 @@ const scrollBtn = document.getElementById('scrollBtn');
 
 let currentSearchMode = 'hybrid';
 let isLoading = false;
+let authToken = localStorage.getItem('rag_auth_token');
+
+// Initialize auth
+async function initAuth() {
+    if (!authToken) {
+        try {
+            const res = await fetch('/api/auth/token');
+            const data = await res.json();
+            authToken = data.access_token;
+            localStorage.setItem('rag_auth_token', authToken);
+        } catch (e) {
+            console.error("Failed to fetch auth token", e);
+        }
+    }
+}
+initAuth();
 
 // ==================== SEARCH MODE TOGGLE ====================
 document.querySelectorAll('.mode-btn').forEach(btn => {
@@ -89,9 +105,12 @@ async function handleSend() {
     const loadingEl = appendLoading();
 
     try {
-        const response = await fetch('/api/ask', {
+        const response = await fetch('/api/ask/stream', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`
+            },
             body: JSON.stringify({
                 question: question,
                 search_mode: currentSearchMode,
@@ -99,16 +118,87 @@ async function handleSend() {
             })
         });
 
-        // Remove loading
-        loadingEl.remove();
-
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({}));
             throw new Error(errorData.detail || `Server error (${response.status})`);
         }
+        
+        // Remove loading before streaming starts
+        loadingEl.remove();
+        
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let buffer = '';
+        
+        // Create an empty assistant message to update
+        const messageDiv = document.createElement('div');
+        messageDiv.className = 'message assistant-message';
+        messageDiv.innerHTML = `
+            <div class="message-avatar">⚖️</div>
+            <div class="message-content">
+                <div class="message-bubble" id="streaming-bubble">
+                    <div class="status-indicator" style="font-size:12px; color:var(--gold); margin-bottom: 8px;">Connecting...</div>
+                    <div class="answer-content"></div>
+                </div>
+            </div>
+        `;
+        chatMessages.appendChild(messageDiv);
+        scrollToBottom();
+        
+        let answerContentEl = messageDiv.querySelector('.answer-content');
+        let statusEl = messageDiv.querySelector('.status-indicator');
+        let fullAnswer = "";
 
-        const data = await response.json();
-        appendAssistantResponse(data);
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            
+            buffer += decoder.decode(value, { stream: true });
+            let lines = buffer.split('\n');
+            buffer = lines.pop(); // keep incomplete line
+            
+            for (let line of lines) {
+                if (line.startsWith('data: ')) {
+                    let dataStr = line.substring(6).trim();
+                    if (!dataStr) continue;
+                    try {
+                        let data = JSON.parse(dataStr);
+                        
+                        if (data.status === 'starting' || data.status === 'cache_check' || data.status === 'retrieving' || data.status === 'reranking') {
+                            statusEl.innerText = data.message;
+                        } 
+                        else if (data.status === 'generating') {
+                            statusEl.innerText = data.message;
+                        }
+                        else if (data.status === 'chunk') {
+                            if (statusEl) {
+                                statusEl.remove();
+                                statusEl = null;
+                            }
+                            fullAnswer += data.chunk;
+                            
+                            let displayAnswer = fullAnswer;
+                            if (displayAnswer.trim() === "GREETING_OR_NON_LEGAL_QUERY" || displayAnswer.includes("GREETING_OR_NON_LEGAL_QUERY")) {
+                                displayAnswer = "**Hello!** I am a Legal Assistant specializing in Indian Law. I can help you with questions about the Constitution, IPC, BNS, and various Acts.\n\n*Please ask me a legal question or present a legal scenario to get started!*";
+                            }
+                            
+                            answerContentEl.innerHTML = formatMarkdown(displayAnswer);
+                            scrollToBottom();
+                        }
+                        else if (data.status === 'complete') {
+                            // Render full structured response (cache hit)
+                            messageDiv.remove();
+                            appendAssistantResponse(data.response);
+                        }
+                        else if (data.status === 'error') {
+                            throw new Error(data.message);
+                        }
+                    } catch (e) {
+                        console.error("Error parsing SSE JSON:", e, dataStr);
+                    }
+                }
+            }
+        }
 
     } catch (error) {
         appendError(error.message || 'Failed to connect to the server. Please try again.');

@@ -46,17 +46,17 @@ SPLIT_PATTERN = re.compile(
     re.IGNORECASE | re.MULTILINE
 )
 
-# Act name patterns
+# Act name patterns with temporal and domain metadata
 ACT_PATTERNS = [
-    re.compile(r'(Indian Penal Code|IPC)', re.IGNORECASE),
-    re.compile(r'(Bharatiya Nyaya Sanhita|BNS)', re.IGNORECASE),
-    re.compile(r'(Constitution of India)', re.IGNORECASE),
-    re.compile(r'(Code of Criminal Procedure|CrPC)', re.IGNORECASE),
-    re.compile(r'(Bharatiya Nagarik Suraksha Sanhita|BNSS)', re.IGNORECASE),
-    re.compile(r'(Indian Evidence Act)', re.IGNORECASE),
-    re.compile(r'(Bharatiya Sakshya Adhiniyam|BSA)', re.IGNORECASE),
-    re.compile(r'\b(Right to Information Act|RTI)\b', re.IGNORECASE),
-    re.compile(r'([\w\s]+Act,?\s*\d{4})', re.IGNORECASE),
+    {"pattern": re.compile(r'(Bharatiya Nyaya Sanhita|BNS)', re.IGNORECASE), "name": "Bharatiya Nyaya Sanhita", "status": "active", "enactment_year": 2023, "doc_type": "statute"},
+    {"pattern": re.compile(r'(Bharatiya Nagarik Suraksha Sanhita|BNSS)', re.IGNORECASE), "name": "Bharatiya Nagarik Suraksha Sanhita", "status": "active", "enactment_year": 2023, "doc_type": "statute"},
+    {"pattern": re.compile(r'(Bharatiya Sakshya Adhiniyam|BSA)', re.IGNORECASE), "name": "Bharatiya Sakshya Adhiniyam", "status": "active", "enactment_year": 2023, "doc_type": "statute"},
+    {"pattern": re.compile(r'(Indian Penal Code|IPC)', re.IGNORECASE), "name": "Indian Penal Code", "status": "repealed", "enactment_year": 1860, "doc_type": "statute"},
+    {"pattern": re.compile(r'(Code of Criminal Procedure|CrPC)', re.IGNORECASE), "name": "Code of Criminal Procedure", "status": "repealed", "enactment_year": 1973, "doc_type": "statute"},
+    {"pattern": re.compile(r'(Indian Evidence Act)', re.IGNORECASE), "name": "Indian Evidence Act", "status": "repealed", "enactment_year": 1872, "doc_type": "statute"},
+    {"pattern": re.compile(r'(Constitution of India)', re.IGNORECASE), "name": "Constitution of India", "status": "active", "enactment_year": 1950, "doc_type": "statute"},
+    {"pattern": re.compile(r'\b(Right to Information Act|RTI)\b', re.IGNORECASE), "name": "Right to Information Act", "status": "active", "enactment_year": 2005, "doc_type": "statute"},
+    {"pattern": re.compile(r'([\w\s]+Act,?\s*\d{4})', re.IGNORECASE), "name": None, "status": "unknown", "enactment_year": None, "doc_type": "statute"},
 ]
 
 
@@ -77,6 +77,9 @@ def extract_legal_metadata(text: str, source_file: str = "", page: int = None) -
         "chapter": None,
         "schedule": None,
         "amendment": None,
+        "status": "unknown",
+        "enactment_year": None,
+        "doc_type": "statute"
     }
     
     # Extract article number
@@ -110,11 +113,21 @@ def extract_legal_metadata(text: str, source_file: str = "", page: int = None) -
         amendment_str = match.group(0).strip()
         metadata["amendment"] = amendment_str
     
-    # Extract act name
-    for pattern in ACT_PATTERNS:
-        match = pattern.search(text)
+    # Extract act name and temporal metadata
+    for act_dict in ACT_PATTERNS:
+        match = act_dict["pattern"].search(text)
         if match:
-            metadata["act_name"] = match.group(1).strip()
+            if act_dict["name"] is None:
+                metadata["act_name"] = match.group(1).strip()
+                # Try to extract year from generic "Act, YYYY"
+                year_match = re.search(r'\b(\d{4})\b', metadata["act_name"])
+                if year_match:
+                    metadata["enactment_year"] = int(year_match.group(1))
+            else:
+                metadata["act_name"] = act_dict["name"]
+                metadata["status"] = act_dict["status"]
+                metadata["enactment_year"] = act_dict["enactment_year"]
+                metadata["doc_type"] = act_dict["doc_type"]
             break
     
     # Infer act from source filename if not found in text
@@ -122,12 +135,28 @@ def extract_legal_metadata(text: str, source_file: str = "", page: int = None) -
         fname = source_file.lower()
         if "constitution" in fname:
             metadata["act_name"] = "Constitution of India"
-        elif "ipc" in fname or "penal" in fname:
+            metadata["status"] = "active"
+            metadata["enactment_year"] = 1950
+        elif "ipc" in fname or "penal code sections" in fname:
             metadata["act_name"] = "Indian Penal Code"
+            metadata["status"] = "repealed"
+            metadata["enactment_year"] = 1860
         elif "bns" in fname or "nyaya" in fname:
             metadata["act_name"] = "Bharatiya Nyaya Sanhita"
-        elif "crpc" in fname:
+            metadata["status"] = "active"
+            metadata["enactment_year"] = 2023
+        elif "crpc" in fname or "criminal procedue" in fname:
             metadata["act_name"] = "Code of Criminal Procedure"
+            metadata["status"] = "repealed"
+            metadata["enactment_year"] = 1973
+        elif "evidence-26" in fname or "evidence act" in fname:
+            metadata["act_name"] = "Indian Evidence Act"
+            metadata["status"] = "repealed"
+            metadata["enactment_year"] = 1872
+        elif "sakshya" in fname or "bsa" in fname:
+            metadata["act_name"] = "Bharatiya Sakshya Adhiniyam"
+            metadata["status"] = "active"
+            metadata["enactment_year"] = 2023
     
     return metadata
 
@@ -259,22 +288,34 @@ def hierarchical_chunk(text: str, source_file: str = "", page: int = None) -> li
     
     # Step 2: Process each chunk
     final_texts = []
+    parent_mapping = {} # Store parent text for each chunk text
     for chunk in raw_chunks:
+        # Save the full section as the parent text
+        parent_text = chunk.strip()
+        
         if len(chunk) <= MAX_CHUNK_SIZE:
             final_texts.append(chunk)
+            parent_mapping[chunk] = parent_text
         else:
             # Sub-split large chunks
             sub_chunks = _recursive_split(chunk, SUB_CHUNK_SIZE, CHUNK_OVERLAP)
-            final_texts.extend(sub_chunks)
+            for sc in sub_chunks:
+                final_texts.append(sc)
+                parent_mapping[sc] = parent_text
     
     # Step 3: Attach metadata to each chunk
     for i, chunk_text in enumerate(final_texts):
         if len(chunk_text.strip()) < MIN_CHUNK_SIZE:
             continue
         
-        meta = extract_legal_metadata(chunk_text, source_file, page)
+        # Use the parent text to extract metadata, so child chunks get the Section/Chapter tags
+        parent_text = parent_mapping[chunk_text]
+        meta = extract_legal_metadata(parent_text, source_file, page)
+        
         meta["chunk_id"] = i
         meta["text"] = chunk_text.strip()
+        meta["parent_text"] = parent_text # Crucial: Save the parent text into metadata
+        
         chunks_with_meta.append(meta)
     
     return chunks_with_meta

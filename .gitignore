@@ -10,3 +10,10 @@ __pycache__/
 .vercel
 data/
 .vscode/
+
+# Heavy local-only artifacts (safety net for Vercel)
+*.npz
+*.npy
+*.faiss
+*.sqlite3
+*.db

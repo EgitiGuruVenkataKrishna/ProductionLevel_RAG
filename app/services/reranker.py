@@ -1,4 +1,4 @@
-﻿"""
+"""
 Cross-Encoder Reranker via Cohere API.
 
 Reranks the top candidates from hybrid search using Cohere's
@@ -7,6 +7,9 @@ rerank-v3.0 model for maximum syntactic relevance scoring.
 import logging
 import os
 import asyncio
+import numpy as np
+import httpx
+from langfuse import observe
 from typing import Optional
 
 try:
@@ -19,6 +22,7 @@ from app.config import COHERE_API_KEY, RERANKER_MODEL, RERANK_TOP_N
 
 logger = logging.getLogger(__name__)
 
+@observe(name="rerank_passages")
 async def rerank_passages(
     query: str,
     passages: list[dict],

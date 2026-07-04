@@ -24,6 +24,24 @@ PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME", "legal-rag")
 COHERE_API_KEY = os.getenv("COHERE_API_KEY", "")
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*")  # Comma-separated or *
 
+# ==================== AUTH CONFIG ====================
+JWT_SECRET = os.getenv("JWT_SECRET", "super-secret-dev-key-change-in-prod")
+JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
+
+# ==================== OBSERVABILITY ====================
+LANGFUSE_PUBLIC_KEY = os.getenv("LANGFUSE_PUBLIC_KEY", "")
+LANGFUSE_SECRET_KEY = os.getenv("LANGFUSE_SECRET_KEY", "")
+LANGFUSE_HOST = os.getenv("LANGFUSE_HOST", "https://cloud.langfuse.com")
+
+# ==================== REDIS & CACHE CONFIG ====================
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+REDIS_TTL_EXACT = int(os.getenv("REDIS_TTL_EXACT", 259200))      # 3 days
+REDIS_TTL_SEMANTIC = int(os.getenv("REDIS_TTL_SEMANTIC", 172800))  # 2 days
+REDIS_TTL_HYDE = int(os.getenv("REDIS_TTL_HYDE", 604800))        # 7 days
+INDEX_VERSION = os.getenv("INDEX_VERSION", "v1")                 # For safe cache invalidation
+RATE_LIMIT_MAX_REQUESTS = int(os.getenv("RATE_LIMIT_MAX_REQUESTS", 10))
+RATE_LIMIT_WINDOW_SECONDS = int(os.getenv("RATE_LIMIT_WINDOW_SECONDS", 60))
+
 # ==================== FEATURE FLAGS ====================
 USE_LOCAL_MODELS = os.getenv("USE_LOCAL_MODELS", "false").lower() == "true"
 USE_SQLITE_METADATA = os.getenv("USE_SQLITE_METADATA", "false").lower() == "true"
@@ -40,8 +58,8 @@ LLM_TEMPERATURE = 0.1
 SEMANTIC_TOP_K = 20
 BM25_TOP_K = 20
 RRF_K = 60          # Reciprocal Rank Fusion constant
-RERANK_TOP_N = 5    # Final top-N after reranking
-CONTEXT_TOP_N = 5   # Chunks sent to LLM
+RERANK_TOP_N = 10    # Final top-N after reranking (increased for broader context)
+CONTEXT_TOP_N = 8    # Chunks sent to LLM (increased to capture trailing punishments/exceptions)
 
 # ==================== CHUNKING CONFIG ====================
 MAX_CHUNK_SIZE = 1600       # ~400 tokens (approx 4 chars per token)
@@ -54,6 +72,7 @@ HIGH_CONFIDENCE = 0.80
 MEDIUM_CONFIDENCE = 0.55
 LOW_CONFIDENCE = 0.35
 VERY_LOW_CONFIDENCE = 0.20
+AGENT_FALLBACK_THRESHOLD = float(os.getenv("AGENT_FALLBACK_THRESHOLD", 0.20))
 
 # ==================== FILE LIMITS ====================
 MAX_FILE_SIZE = 50 * 1024 * 1024   # 50MB for legal docs
@@ -72,14 +91,15 @@ Your goal is to answer legal questions and resolve complex hypotheticals using t
 CRITICAL INSTRUCTIONS:
 1. Base your answer EXCLUSIVELY on the provided legal context.
 2. If the user's input is a conversational greeting (like 'hlo', 'hi', 'hello') or fundamentally NOT a legal question, DO NOT use IRAC and DO NOT provide legal analysis. Instead, respond exactly with the phrase: "GREETING_OR_NON_LEGAL_QUERY"
-3. If it IS a legal question, structure your answer using the IRAC framework but keep it of MODERATE LENGTH and CONCISE unless the user asks for extensive details:
+3. **PRIORITIZE NEW LAWS (BNS/BNSS/BSA):** India transitioned to new criminal laws on July 1, 2024. ALWAYS apply and cite the Bharatiya Nyaya Sanhita (BNS), Bharatiya Nagarik Suraksha Sanhita (BNSS), and Bharatiya Sakshya Adhiniyam (BSA) over the repealed IPC, CrPC, or IEA. If the scenario occurs after July 1, 2024, you are STRICTLY FORBIDDEN from using the old Evidence Act, IPC, CrPC, or historical IT Act clauses for procedural validation. If the relevant BSA/BNS chunk is missing, state: "The required new active law is not present in the retrieved context."
+4. If it IS a legal question, structure your answer using the IRAC framework but keep it of MODERATE LENGTH. However, DO NOT omit crucial parts of a section just to be concise:
    - **ISSUE:** Briefly state the legal question.
-   - **RULE:** Extract exact laws, Sections, and their rigid conditions.
-   - **APPLICATION:** Briefly apply the rules to the actors.
-   - **CONCLUSION:** A definitive legal outcome based purely on the text.
-4. If the context does not contain the answer, say "I cannot determine this from the available excerpts."
-5. NEVER fabricate or hallucinate legal provisions.
-6. Use formal legal language.
+   - **RULE:** Extract exact laws, Sections, their FULL rigid conditions, AND any punishments, penalties, or exceptions mentioned.
+   - **APPLICATION:** Briefly apply the rules to the actors. Ensure you mention requirements like 'communication to a third party' or 'cognizance by Sessions Court' if the law demands it.
+   - **CONCLUSION:** A definitive legal outcome based purely on the text. Include the potential punishment if applicable.
+5. If the context does not contain the answer, say "I cannot determine this from the available excerpts."
+6. NEVER fabricate, guess, or hallucinate legal provisions, procedural links, or punishments. If a specific procedural section (like cognizance for public servants) is not in the context, do not guess it.
+7. Use formal legal language.
 
 CITATION FORMAT (use exactly):
 - IPC: [Section 302, Indian Penal Code, 1860]

@@ -8,6 +8,9 @@ import json
 import asyncio
 import numpy as np
 import httpx
+import time
+import math
+from langfuse import observe
 from pathlib import Path
 from typing import Optional
 
@@ -30,8 +33,9 @@ _local_embedding_model = None
 if USE_LOCAL_MODELS:
     try:
         from fastembed import TextEmbedding
-        logger.info("Initializing FastEmbed TextEmbedding for local inference...")
-        _local_embedding_model = TextEmbedding(model_name="sentence-transformers/all-MiniLM-L6-v2")
+        from app.config import EMBEDDING_MODEL
+        logger.info(f"Initializing FastEmbed TextEmbedding ({EMBEDDING_MODEL}) for local inference...")
+        _local_embedding_model = TextEmbedding(model_name=EMBEDDING_MODEL)
     except ImportError:
         logger.error("fastembed not installed. Falling back to HF Inference API. Run `pip install fastembed`.")
         USE_LOCAL_MODELS = False
@@ -171,14 +175,54 @@ def reciprocal_rank_fusion(
 
 import re
 
-def detect_category(query: str) -> Optional[str]:
-    q = query.lower()
-    if re.search(r'\b(tort|sue|negligence|liable|damage|injury)\b', q):
-        return 'Civil Torts'
-    if re.search(r'\b(crime|ipc|murder|theft|arrest|penal)\b', q):
-        return 'Criminal Law'
-    if re.search(r'\b(contract|agree|sign|breach|consideration)\b', q):
-        return 'Contract Law'
+CATEGORIES = {
+    'Civil Torts': "tort sue negligence liable damage injury nuisance trespass defamation",
+    'Criminal Law': "crime ipc murder theft arrest penal nyaya sanhita bns culpable robbery cheating",
+    'Contract Law': "contract agree sign breach consideration indemnity bailment pledge",
+    'Constitutional Law': "constitution fundamental right directive amendment preamble article",
+    'Evidence Law': "evidence witness testimony confession hearsay burden of proof sakshya",
+    'Civil Procedure': "civil procedure suit decree plaint civil court",
+    'Criminal Procedure': "criminal procedure bail fir charge crpc bnss investigation cognizable",
+    'Property Law': "transfer of property mortgage lease sale deed easement immovable",
+    'RTI': "rti right to information public authority information commission",
+    'Statutory Interpretation': "interpretation statute statutory maxim",
+    'Corporate Law': "corporate company nclt ibc insolvency bankruptcy shares shareholder director board oppression mismanagement"
+}
+
+_category_embeddings = {}
+
+async def _get_category_embeddings():
+    if _category_embeddings:
+        return _category_embeddings
+    for cat, text in CATEGORIES.items():
+        emb = await embed_query(text)
+        if emb is not None:
+            _category_embeddings[cat] = emb
+    return _category_embeddings
+
+def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
+    return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+
+async def detect_category(query: str) -> Optional[str]:
+    """Detect legal domain using embedding cosine similarity for Pinecone metadata filtering."""
+    query_emb = await embed_query(query)
+    if query_emb is None:
+        return None
+        
+    cat_embs = await _get_category_embeddings()
+    if not cat_embs:
+        return None
+        
+    best_cat = None
+    best_score = 0.0
+    for cat, emb in cat_embs.items():
+        score = cosine_similarity(query_emb, emb)
+        if score > best_score:
+            best_score = score
+            best_cat = cat
+            
+    if best_score > 0.65:
+        return best_cat
     return None
 
 # ==================== HYBRID SEARCH ====================
@@ -187,7 +231,8 @@ async def hybrid_search(
     original_query: str,
     mode: str = "hybrid",
     semantic_top_k: int = SEMANTIC_TOP_K,
-    bm25_top_k: int = BM25_TOP_K
+    bm25_top_k: int = BM25_TOP_K,
+    precomputed_embedding: Optional[np.ndarray] = None
 ) -> list[tuple[int, float]]:
     """
     Perform hybrid search combining semantic (Pinecone) + BM25.
@@ -207,11 +252,15 @@ async def hybrid_search(
     
     # Semantic search (Pinecone)
     if mode in ("hybrid", "semantic"):
-        category_filter = detect_category(original_query)
+        category_filter = await detect_category(original_query)
         if category_filter:
-            logger.info(f"Regex intent matched. Applying Pinecone filter: {category_filter}")
+            logger.info(f"Embedding intent matched. Applying Pinecone filter: {category_filter}")
             
-        query_embedding = await embed_query(query_to_embed)
+        if precomputed_embedding is not None and query_to_embed == original_query:
+            query_embedding = precomputed_embedding
+        else:
+            query_embedding = await embed_query(query_to_embed)
+            
         if query_embedding is not None:
             # Pinecone requires python native floats
             query_embedding_list = query_embedding.tolist()
@@ -245,12 +294,14 @@ async def hybrid_search(
 
 
 # ==================== MULTI-QUERY HYBRID SEARCH ====================
+@observe(name="multi_query_hybrid_search")
 async def multi_query_hybrid_search(
     queries: list[str],
     original_query: str,
     mode: str = "hybrid",
     semantic_top_k: int = SEMANTIC_TOP_K,
-    bm25_top_k: int = BM25_TOP_K
+    bm25_top_k: int = BM25_TOP_K,
+    precomputed_embedding: Optional[np.ndarray] = None
 ) -> list[tuple[int, float]]:
     """
     Run hybrid search across multiple expanded queries CONCURRENTLY and merge results.
@@ -275,7 +326,7 @@ async def multi_query_hybrid_search(
     
     # Dispatch all queries concurrently
     tasks = [
-        hybrid_search(query, original_query, mode, semantic_top_k, bm25_top_k)
+        hybrid_search(query, original_query, mode, semantic_top_k, bm25_top_k, precomputed_embedding)
         for query in queries
     ]
     all_results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -297,14 +348,14 @@ async def multi_query_hybrid_search(
             )
     
     # Sort by accumulated score descending
-    merged = sorted(accumulated_scores.items(), key=lambda x: x[1], reverse=True)
+    sorted_results = sorted(accumulated_scores.items(), key=lambda x: x[1], reverse=True)
     
     logger.info(
         f"Multi-query search: {len(queries)} queries (parallel) -> "
-        f"{len(merged)} unique candidates"
+        f"{len(sorted_results)} unique candidates"
     )
     
-    return merged
+    return sorted_results
 
 
 def multi_query_hybrid_search_sync(
