@@ -6,7 +6,6 @@ indexed SQLite database to eliminate OOM errors and reduce cold start time
 on Vercel serverless functions.
 """
 import logging
-import json
 import aiosqlite
 from pathlib import Path
 from typing import Optional

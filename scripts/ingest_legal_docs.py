@@ -424,7 +424,7 @@ def main():
 
     cat_dist = Counter(c["category"] for c in chunks)
     logger.info(f"   📊 Enriched {enriched_count}/{len(chunks)} chunks with context headers")
-    logger.info(f"   📊 Category distribution:")
+    logger.info("   📊 Category distribution:")
     for cat, count in cat_dist.most_common():
         logger.info(f"      {cat}: {count} chunks")
 
@@ -491,7 +491,7 @@ def main():
                     index.upsert(vectors=vectors_batch[:half])
                     index.upsert(vectors=vectors_batch[half:])
                     total_upserted += len(vectors_batch)
-                    logger.info(f"   ↻ Retry succeeded with split batch")
+                    logger.info("   ↻ Retry succeeded with split batch")
                 except Exception as e2:
                     logger.error(f"   ❌ Retry also failed: {e2}")
             vectors_batch = []
@@ -576,8 +576,8 @@ def main():
     logger.info(f"     Embed+Upsert: {embed_time:.0f}s")
     logger.info(f"     BM25:         {bm25_time:.0f}s")
     logger.info("")
-    logger.info(f"🚀 Ready! Push to GitHub → Vercel will use Pinecone cloud vectors.")
-    logger.info(f"   Test locally: python main.py")
+    logger.info("🚀 Ready! Push to GitHub → Vercel will use Pinecone cloud vectors.")
+    logger.info("   Test locally: python main.py")
 
 
 if __name__ == "__main__":

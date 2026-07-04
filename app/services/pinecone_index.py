@@ -1,5 +1,4 @@
 import logging
-import os
 from pinecone import Pinecone
 from app.config import PINECONE_API_KEY, PINECONE_INDEX_NAME
 

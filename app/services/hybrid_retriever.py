@@ -8,15 +8,12 @@ import json
 import asyncio
 import numpy as np
 import httpx
-import time
-import math
 from langfuse import observe
 from pathlib import Path
 from typing import Optional
 
 from app.config import (
-    SEMANTIC_TOP_K, BM25_TOP_K, RRF_K, RERANK_TOP_N,
-    HF_EMBEDDING_URL, HF_API_TOKEN, CHUNKS_METADATA_PATH,
+    SEMANTIC_TOP_K, BM25_TOP_K, RRF_K, HF_EMBEDDING_URL, HF_API_TOKEN, CHUNKS_METADATA_PATH,
     USE_LOCAL_MODELS, USE_SQLITE_METADATA
 )
 from app.services.bm25_index import bm25_index
@@ -173,7 +170,6 @@ def reciprocal_rank_fusion(
     return ranked
 
 
-import re
 
 CATEGORIES = {
     'Civil Torts': "tort sue negligence liable damage injury nuisance trespass defamation",

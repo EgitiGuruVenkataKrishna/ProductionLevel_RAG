@@ -10,8 +10,6 @@ if project_root not in sys.path:
 from dotenv import load_dotenv
 load_dotenv()
 
-from app.models import QueryRequest
-from app.services.pipeline import run_ask_pipeline
 from app.services.query_expander import expand_query
 from app.services.hybrid_retriever import multi_query_hybrid_search, get_chunks
 

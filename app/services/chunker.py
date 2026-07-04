@@ -6,7 +6,6 @@ instead of blind fixed-size windows. Attaches legal metadata to each chunk.
 """
 import re
 import logging
-from typing import Optional
 from app.config import MAX_CHUNK_SIZE, SUB_CHUNK_SIZE, CHUNK_OVERLAP, MIN_CHUNK_SIZE
 
 logger = logging.getLogger(__name__)

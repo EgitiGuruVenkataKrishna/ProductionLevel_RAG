@@ -1,7 +1,5 @@
-import asyncio
 from fastapi.testclient import TestClient
 from api.ask import app
-import json
 
 client = TestClient(app)
 

@@ -4,10 +4,8 @@ Processes documents one by one to avoid OOM.
 Saves progress incrementally.
 """
 import sys
-import os
 import json
 import logging
-import traceback
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -88,7 +86,7 @@ def main():
                 all_chunks = json.load(f)
                 processed_files = set(c.get("source_file") for c in all_chunks)
             logger.info(f"Resuming... Already processed {len(processed_files)} files, {len(all_chunks)} chunks.")
-        except Exception as e:
+        except Exception:
             logger.error("Failed to read chunks_metadata.json, starting fresh.")
             all_chunks = []
             

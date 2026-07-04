@@ -1,5 +1,4 @@
 import pytest
-import asyncio
 from app.models import QueryRequest
 from app.services.pipeline import run_ask_pipeline
 

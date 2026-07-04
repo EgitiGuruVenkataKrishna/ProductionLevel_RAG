@@ -6,7 +6,6 @@ embeds them locally using fastembed (BAAI/bge-large-en-v1.5), and uploads
 them to the Pinecone index (creating it if necessary). Also rebuilds BM25.
 """
 import sys
-import os
 import json
 import logging
 from pathlib import Path

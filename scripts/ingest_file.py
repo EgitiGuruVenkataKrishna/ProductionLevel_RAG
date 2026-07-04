@@ -1,5 +1,4 @@
 import sys
-import os
 import json
 import logging
 from pathlib import Path
@@ -52,9 +51,9 @@ def ingest_file(file_path_str: str):
         logger.error(f"File not found: {file_path}")
         return
     
-    logger.info(f"\n========================================")
+    logger.info("\n========================================")
     logger.info(f"PROCESSING FILE: {file_path.name}")
-    logger.info(f"========================================")
+    logger.info("========================================")
     
     # 1. Load and OCR Check
     documents = []
@@ -83,7 +82,7 @@ def ingest_file(file_path_str: str):
         documents.append({"text": text, "source_file": file_path.name, "page": 0})
     
     # 2. Refined Chunking (400 tokens / 50 overlap approx)
-    logger.info(f"\n[Chunking] Splitting text with strict 400 token limit...")
+    logger.info("\n[Chunking] Splitting text with strict 400 token limit...")
     chunks = chunk_documents(documents)
     total_chunks = len(chunks)
     logger.info(f"✅ Created {total_chunks} legal-aware chunks.")
@@ -134,7 +133,7 @@ def ingest_file(file_path_str: str):
         with open(meta_path, "w", encoding="utf-8") as f:
             json.dump(chunks, f, indent=2, ensure_ascii=False)
             
-        logger.info(f"\n✅ SUCCESS: File fully processed and checkpoints finalized.")
+        logger.info("\n✅ SUCCESS: File fully processed and checkpoints finalized.")
     else:
         logger.warning("No embeddings generated.")
 

@@ -4,7 +4,6 @@ Vercel Serverless Function: /api/health
 Health check and system status endpoint.
 """
 import sys
-import os
 import json
 import httpx
 from pathlib import Path

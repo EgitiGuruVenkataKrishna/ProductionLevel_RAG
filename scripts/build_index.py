@@ -13,7 +13,6 @@ This script requires sentence-transformers (heavy dependency).
 It runs locally ONLY — not deployed to Vercel.
 """
 import sys
-import os
 import json
 import argparse
 import logging
@@ -113,9 +112,12 @@ def main():
     # Show sample metadata
     for chunk in chunks[:3]:
         meta_parts = []
-        if chunk.get("article_number"): meta_parts.append(chunk["article_number"])
-        if chunk.get("section"): meta_parts.append(chunk["section"])
-        if chunk.get("act_name"): meta_parts.append(chunk["act_name"])
+        if chunk.get("article_number"):
+            meta_parts.append(chunk["article_number"])
+        if chunk.get("section"):
+            meta_parts.append(chunk["section"])
+        if chunk.get("act_name"):
+            meta_parts.append(chunk["act_name"])
         logger.info(f"  Sample chunk: {' | '.join(meta_parts) or 'No legal metadata'} "
                     f"({len(chunk['text'])} chars)")
     
@@ -184,7 +186,7 @@ def main():
     logger.info(f"  Chunks created:      {len(chunks)}")
     logger.info(f"  Embedding dims:      {embeddings.shape[1]}")
     logger.info(f"  Output directory:    {output_dir}")
-    logger.info(f"\n  Files generated:")
+    logger.info("\n  Files generated:")
     for f in sorted(output_dir.rglob("*")):
         if f.is_file():
             size_kb = f.stat().st_size / 1024
@@ -196,7 +198,7 @@ def main():
     logger.info("=" * 60)
     
     from dotenv import set_key, get_key
-    env_path = BASE_DIR / ".env" if 'BASE_DIR' in locals() else Path(project_root) / ".env"
+    env_path = Path(project_root) / ".env"
     
     if env_path.exists():
         current_version_str = get_key(str(env_path), "INDEX_VERSION")
@@ -214,7 +216,7 @@ def main():
     else:
         logger.warning(f"⚠️ .env file not found at {env_path}, skipping version bump.")
     
-    logger.info(f"\n🚀 Ready! Deploy with: vercel --prod")
+    logger.info("\n🚀 Ready! Deploy with: vercel --prod")
 
 
 if __name__ == "__main__":

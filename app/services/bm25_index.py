@@ -5,8 +5,6 @@ Uses bm25s for ultra-fast keyword retrieval.
 Index is pre-built offline and loaded at startup.
 """
 import logging
-import json
-import numpy as np
 from pathlib import Path
 from typing import Optional
 

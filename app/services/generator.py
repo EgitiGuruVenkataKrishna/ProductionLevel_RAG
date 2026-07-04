@@ -6,8 +6,6 @@ Uses Groq API for fast inference with a strict legal persona.
 import logging
 import os
 import json
-import re
-import asyncio
 import asyncio
 from groq import Groq
 from langfuse import observe
@@ -108,8 +106,10 @@ Output ONLY the category word (greeting, system, or legal) and nothing else."""
         )
         
         result = chat_completion.choices[0].message.content.strip().lower()
-        if "greeting" in result: return "greeting"
-        if "system" in result: return "system"
+        if "greeting" in result:
+            return "greeting"
+        if "system" in result:
+            return "system"
         return "legal"
     except Exception as e:
         logger.error(f"Intent detection failed: {e}")

@@ -5,7 +5,6 @@ Used by both main.py and api/ask.py.
 Merged generation+grounding: Steps 6+7 are now a single LLM call.
 """
 import logging
-from fastapi import HTTPException
 from langfuse import observe
 from app.config import RERANK_TOP_N, CONTEXT_TOP_N, USE_AGENTIC_PIPELINE
 from app.models import QueryRequest, QueryResponse, CitationSource, GroundingMetrics
@@ -14,8 +13,7 @@ from app.services.hybrid_retriever import multi_query_hybrid_search, get_chunks,
 from app.services.reranker import rerank_passages
 from app.services.context_filter import filter_and_sanitize
 from app.services.generator import (
-    generate_legal_answer, get_confidence_level, build_context,
-    generate_and_verify_legal_answer,  # Merged generation + grounding
+    get_confidence_level, generate_and_verify_legal_answer,  # Merged generation + grounding
     generate_and_verify_legal_answer_stream,
     detect_query_intent
 )

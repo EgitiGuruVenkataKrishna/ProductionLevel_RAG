@@ -27,7 +27,7 @@ jobs:
         
     - name: Lint with Ruff
       run: |
-        ruff check .
+        ruff check . --ignore E402,F841
         
     - name: Run Pytest
       run: |

@@ -7,10 +7,7 @@ rerank-v3.0 model for maximum syntactic relevance scoring.
 import logging
 import os
 import asyncio
-import numpy as np
-import httpx
 from langfuse import observe
-from typing import Optional
 
 try:
     import cohere

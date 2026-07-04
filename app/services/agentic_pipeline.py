@@ -5,15 +5,13 @@ Implements a LangGraph-based state machine for dynamic routing,
 retrieval grading, and web fallback for the Legal RAG system.
 """
 import logging
-from typing import TypedDict, Annotated, Literal
-import operator
+from typing import TypedDict, Literal
 from langgraph.graph import StateGraph, END
 
 from app.models import QueryRequest, QueryResponse, CitationSource, GroundingMetrics
 from app.services.query_expander import expand_query
 from app.services.hybrid_retriever import multi_query_hybrid_search, get_chunks
 from app.services.reranker import rerank_passages
-from app.services.context_filter import filter_and_sanitize
 from app.services.context_filter import filter_and_sanitize
 from app.services.generator import generate_and_verify_legal_answer
 from app.config import RERANK_TOP_N, AGENT_FALLBACK_THRESHOLD
@@ -165,7 +163,8 @@ async def generate_response(state: AgentState) -> dict:
     relevance = min(1.0, faithfulness + 0.1) if faithfulness >= 0.5 else faithfulness
     coverage = 0.5
     overall = faithfulness * 0.6 + relevance * 0.3 + coverage * 0.1
-    if faithfulness < 0.3: overall = min(overall, 0.15)
+    if faithfulness < 0.3:
+        overall = min(overall, 0.15)
     
     is_grounded = (faithfulness >= 0.7 and overall >= 0.5 and not clean_claims)
     

@@ -3,7 +3,6 @@ Pinecone Migration Script - TEST MODE
 Only processes a small subset of documents for quick testing.
 """
 import sys
-import os
 import json
 import logging
 from pathlib import Path

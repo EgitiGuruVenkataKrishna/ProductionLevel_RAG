@@ -24,7 +24,7 @@ async def test():
         print("\n\n--- PIPELINE SUCCESS ---")
         print(f"Answer: {response.answer[:100]}...")
         print(f"Faithfulness Score: {response.faithfulness_score}")
-    except Exception as e:
+    except Exception:
         print("\n\n--- PIPELINE CRASH ---")
         import traceback
         traceback.print_exc()

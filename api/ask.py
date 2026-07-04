@@ -5,7 +5,6 @@ Main query endpoint for the Legal RAG assistant.
 Now uses shared pipeline logic.
 """
 import sys
-import os
 import logging
 import threading
 from pathlib import Path
