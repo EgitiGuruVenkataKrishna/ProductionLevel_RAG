@@ -11,7 +11,7 @@ uvicorn>=0.25.0
 gunicorn>=21.2.0
 
 # HTTP Client
-httpx>=0.25.0
+httpx>=0.25.0,<0.28.0
 
 # LLM
 groq>=0.4.0
